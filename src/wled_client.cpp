@@ -61,7 +61,7 @@ bool WLEDClient::fetchEffects() {
 }
 
 bool WLEDClient::fetchPresets() {
-    String response = httpGet("/json/presets");
+    String response = httpGet("/presets.json");
     if (response.isEmpty()) return false;
 
     JsonDocument doc;
