@@ -29,9 +29,9 @@
 
 #define BUTTON_MENU_PIN   0
 #define BUTTON_BACK_PIN   14
-#define ENCODER_CLK_PIN   21
-#define ENCODER_DT_PIN    22
-#define ENCODER_SW_PIN    23
+#define ENCODER_CLK_PIN   1
+#define ENCODER_DT_PIN    17
+#define ENCODER_SW_PIN    10
 #define POWER_PIN         15
 #define LED_PIN           2
 
