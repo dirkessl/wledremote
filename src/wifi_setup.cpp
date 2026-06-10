@@ -6,91 +6,90 @@ WiFiSetup wifiSetup;
 
 static Preferences wifiPrefs;
 
+// ---- Try saved credentials only (no portal) ----
 bool WiFiSetup::begin(const char* apName, uint16_t portalTimeout) {
-    // Enable verbose WiFi debug output
-    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
-        switch (event) {
-            case ARDUINO_EVENT_WIFI_STA_START:
-                Serial.println("[WiFi] Station started");
-                break;
-            case ARDUINO_EVENT_WIFI_STA_CONNECTED:
-                Serial.println("[WiFi] Connected to AP");
-                break;
-            case ARDUINO_EVENT_WIFI_STA_GOT_IP:
-                Serial.printf("[WiFi] Got IP: %s\n", WiFi.localIP().toString().c_str());
-                break;
-            case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
-                Serial.printf("[WiFi] Disconnected, reason: %d\n", info.wifi_sta_disconnected.reason);
-                break;
-            case ARDUINO_EVENT_WIFI_STA_AUTHMODE_CHANGE:
-                Serial.println("[WiFi] Auth mode changed");
-                break;
-            default:
-                Serial.printf("[WiFi] Event: %d\n", event);
-                break;
-        }
-    });
-
-    // Try to connect with our own saved credentials first
-    wifiPrefs.begin("wifi-creds", true);  // read-only
+    wifiPrefs.begin("wifi-creds", true);
     String ssid = wifiPrefs.getString("ssid", "");
     String pass = wifiPrefs.getString("pass", "");
     wifiPrefs.end();
 
-     if (ssid.length() > 0) {
-         Serial.printf("[WiFi] Trying saved SSID: %s (pass len: %d)\n", ssid.c_str(), pass.length());
-
-         // Try connection with saved credentials
-        if (tryConnectSaved(ssid, pass)) {
-            return true;
-         }
-
-        Serial.println("[WiFi] Saved credentials failed, starting portal");
-     } else {
-        Serial.println("[WiFi] No saved credentials found");
+    if (ssid.length() > 0) {
+        Serial.printf("[WiFi] Trying saved SSID: %s\n", ssid.c_str());
+        if (tryConnectSaved(ssid, pass)) return true;
+        Serial.println("[WiFi] Saved credentials failed");
+    } else {
+        Serial.println("[WiFi] No saved credentials");
     }
 
-    // Start WiFiManager portal directly (skip autoConnect's internal
-    // connection attempt since it has no stored creds on Core 3.x)
+    return false;
+}
+
+// ---- Non-blocking captive portal ----
+void WiFiSetup::startPortal(const char* apName) {
+    // Clean slate
+    WiFi.disconnect(true);
+    delay(200);
+
     _wm.setDebugOutput(true, "WM: ");
-    _wm.setConfigPortalTimeout(portalTimeout);
-    _wm.setConnectTimeout(60);
+    _wm.setConfigPortalTimeout(180);
+    _wm.setAPStaticIPConfig(
+        IPAddress(192, 168, 4, 1),
+        IPAddress(192, 168, 4, 1),
+        IPAddress(255, 255, 255, 0)
+    );
+    _wm.setConfigPortalBlocking(false);   // KEY: non-blocking
+    _wm.startConfigPortal(apName);
 
-    bool connected = _wm.startConfigPortal(apName);
+    Serial.println("[WiFi] Portal started non-blocking — call processPortal() in loop");
+}
 
-    // If connected, save the credentials ourselves
-    if (connected) {
-        // Wait a moment for WiFi stack to stabilize
-        delay(1000);
-        
-        // Try WiFiManager getters first, fall back to WiFi class
-        String newSSID = _wm.getWiFiSSID();
-        String newPass = _wm.getWiFiPass();
-        
-        if (newSSID.length() == 0) {
-            newSSID = WiFi.SSID();
-            newPass = WiFi.psk();
-        }
-        
-        Serial.printf("[WiFi] Saving credentials - SSID: '%s', pass length: %d\n", 
-                      newSSID.c_str(), newPass.length());
-        
-        if (newSSID.length() > 0) {
-            wifiPrefs.begin("wifi-creds", false);
-            wifiPrefs.putString("ssid", newSSID);
-            wifiPrefs.putString("pass", newPass);
-            wifiPrefs.end();
-            Serial.printf("[WiFi] Credentials saved for: %s\n", newSSID.c_str());
-        } else {
-            Serial.println("[WiFi] WARNING: Could not get SSID to save!");
-        }
+bool WiFiSetup::processPortal() {
+    _wm.process();   // Handle DNS + HTTP requests — must be called every loop()
+
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("[WiFi] Portal: connected!");
+        saveCredentials();
+        return true;
+    }
+    return false;
+}
+
+bool WiFiSetup::isPortalActive() {
+    return _wm.getConfigPortalActive();
+}
+
+void WiFiSetup::saveCredentials() {
+    delay(500);
+    String newSSID = _wm.getWiFiSSID();
+    String newPass = _wm.getWiFiPass();
+    if (newSSID.length() == 0) { newSSID = WiFi.SSID(); newPass = WiFi.psk(); }
+    if (newSSID.length() > 0) {
+        wifiPrefs.begin("wifi-creds", false);
+        wifiPrefs.putString("ssid", newSSID);
+        wifiPrefs.putString("pass", newPass);
+        wifiPrefs.end();
+        Serial.printf("[WiFi] Credentials saved for: %s\n", newSSID.c_str());
+    }
+}
+
+// ---- Non-blocking reconnect ----
+static bool _isReconnecting = false;
+static uint32_t _reconnectStart = 0;
+
+bool WiFiSetup::reconnect(uint8_t maxAttempts) {
+    if (WiFi.status() == WL_CONNECTED) {
+        _isReconnecting = false;
+        return true;
     }
 
-     return connected;
-   }
+    if (_isReconnecting) {
+        if (millis() - _reconnectStart > 20000) {
+            Serial.println("[WiFi] Reconnect timeout");
+            _isReconnecting = false;
+        }
+        return false;
+    }
 
-// Reconnect using saved credentials (called from main loop after detecting disconnect)
-bool WiFiSetup::reconnect(uint8_t maxAttempts) {
     wifiPrefs.begin("wifi-creds", true);
     String ssid = wifiPrefs.getString("ssid", "");
     String pass = wifiPrefs.getString("pass", "");
@@ -98,15 +97,19 @@ bool WiFiSetup::reconnect(uint8_t maxAttempts) {
 
     if (ssid.length() == 0) return false;
 
-    Serial.printf("[WiFi] Reconnect attempt (max %d), SSID: %s\n", maxAttempts, ssid.c_str());
-    bool connected = tryConnectSaved(ssid, pass);
-    if (!connected) {
-        Serial.println("[WiFi] Reconnect failed");
-       }
-    return connected;
-   }
+    Serial.printf("[WiFi] Starting non-blocking reconnect to: %s\n", ssid.c_str());
+    WiFi.mode(WIFI_STA);
+    WiFi.persistent(false);
+    WiFi.disconnect(true);
+    delay(100);
+    WiFi.begin(ssid.c_str(), pass.c_str());
+    _isReconnecting = true;
+    _reconnectStart = millis();
 
-// Try connecting with given credentials (up to 2 attempts per call)
+    return false;
+}
+
+// ---- Try connecting with saved creds (blocking, used at boot only) ----
 bool WiFiSetup::tryConnectSaved(const String& ssid, const String& pass) {
     WiFi.mode(WIFI_STA);
     WiFi.persistent(false);
@@ -116,24 +119,24 @@ bool WiFiSetup::tryConnectSaved(const String& ssid, const String& pass) {
         WiFi.begin(ssid.c_str(), pass.c_str());
 
         uint32_t start = millis();
-        while (WiFi.status() != WL_CONNECTED && (millis() - start) < 20000) {
+        while (WiFi.status() != WL_CONNECTED && (millis() - start) < 15000) {
             delay(250);
             Serial.print(".");
-           }
+        }
         Serial.println();
 
         if (WiFi.status() == WL_CONNECTED) {
-            Serial.println("[WiFi] Connected with saved credentials");
+            Serial.printf("[WiFi] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
             return true;
-           }
+        }
 
-        Serial.printf("[WiFi] Attempt %d failed, status: %d\n", attempt, WiFi.status());
+        Serial.printf("[WiFi] Attempt %d failed\n", attempt);
         WiFi.disconnect(true);
-        delay(1000);
-       }
+        delay(500);
+    }
 
     return false;
-   }
+}
 
 bool WiFiSetup::hasSavedCredentials() {
     Preferences prefs;
@@ -141,11 +144,6 @@ bool WiFiSetup::hasSavedCredentials() {
     String ssid = prefs.getString("ssid", "");
     prefs.end();
     return ssid.length() > 0;
-}
-
-bool WiFiSetup::startPortal(const char* apName) {
-    _wm.setConfigPortalTimeout(180);
-    return _wm.startConfigPortal(apName);
 }
 
 void WiFiSetup::resetCredentials() {

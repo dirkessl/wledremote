@@ -153,26 +153,39 @@ void UI::showBoot() {
 
 void UI::showAPMode(const String& apName) {
     _screen = AppScreen::AP_MODE;
-    _sprite.fillScreen(COL_BG);
-    drawHeader("WiFi Setup");
+    _sprite.fillScreen(0x1C1C1EU);
 
-    _sprite.setTextColor(COL_TEXT);
-    _sprite.setTextSize(1);
-    _sprite.setCursor(10, CONTENT_Y + 10);
-    _sprite.println("Connect to WiFi:");
-    _sprite.setTextColor(COL_ACCENT);
+    // WiFi icon (simple placeholder)
+    int cx = SCREEN_W / 2;
+    _sprite.drawCircle(cx, 55, 28, 0xFFAA00U);
+    _sprite.fillCircle(cx, 55, 5, 0xFFAA00U);
+
+    _sprite.setTextColor(0xFFFFFFU);
     _sprite.setTextSize(2);
-    _sprite.setCursor(10, CONTENT_Y + 40);
-    _sprite.println(apName);
-    _sprite.setTextColor(COL_DIM);
+    int titleW = 9 * 12;  // "WiFi Setup"
+    _sprite.setCursor((SCREEN_W - titleW) / 2, 95);
+    _sprite.print("WiFi Setup");
+
+    // AP name
+    _sprite.setTextColor(0xFFAA00U);
     _sprite.setTextSize(1);
-    _sprite.setCursor(10, CONTENT_Y + 80);
-    _sprite.println("Then open browser");
-    _sprite.setCursor(10, CONTENT_Y + 100);
-    _sprite.println("to configure WiFi");
-    _sprite.setCursor(10, CONTENT_Y + 130);
-    _sprite.setTextColor(COL_TEXT);
-    _sprite.println("192.168.4.1");
+    _sprite.setCursor((SCREEN_W - apName.length() * 6) / 2, 124);
+    _sprite.print(apName);
+
+    // Instruction
+    _sprite.setTextColor(0x8E8E93U);
+    _sprite.setTextSize(1);
+    _sprite.setCursor(4, 148);
+    _sprite.print("1. Connect to WiFi above");
+    _sprite.setCursor(4, 162);
+    _sprite.print("2. Open browser, go to:");
+
+    // IP large
+    _sprite.setTextColor(0x30D158U);
+    _sprite.setTextSize(2);
+    int ipW = 11 * 12; // "192.168.4.1"
+    _sprite.setCursor((SCREEN_W - ipW) / 2, 182);
+    _sprite.print("192.168.4.1");
 
     update();
 }
@@ -187,9 +200,9 @@ void UI::showWifiConnecting() {
 
     _sprite.setTextColor(0xFFFFFFU);
     _sprite.setTextSize(2);
-    int textW = 15 * 12; // "Connecting WiFi"
+    int textW = 13 * 12; // "Connecting..."
     _sprite.setCursor((SCREEN_W - textW) / 2, logoY + LOGO_H + 20);
-    _sprite.print("Connecting WiFi");
+    _sprite.print("Connecting...");
 
     _sprite.setTextColor(0x8E8E93U);
     _sprite.setTextSize(1);
@@ -210,9 +223,9 @@ void UI::showWledConnecting() {
 
     _sprite.setTextColor(0xFFFFFFU);
     _sprite.setTextSize(2);
-    int textW = 15 * 12; // "Connecting WLED"
+    int textW = 13 * 12; // "Connecting..."
     _sprite.setCursor((SCREEN_W - textW) / 2, logoY + LOGO_H + 20);
-    _sprite.print("Connecting WLED");
+    _sprite.print("Connecting...");
 
     _sprite.setTextColor(0x8E8E93U);
     _sprite.setTextSize(1);

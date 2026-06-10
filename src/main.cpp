@@ -29,9 +29,9 @@
 
 #define BUTTON_MENU_PIN   BUTTON_LEFT_PIN
 #define BUTTON_BACK_PIN   BUTTON_RIGHT_PIN
-#define ENCODER_CLK_PIN   21
-#define ENCODER_DT_PIN    22
-#define ENCODER_SW_PIN    23
+#define ENCODER_CLK_PIN   1
+#define ENCODER_DT_PIN    17
+#define ENCODER_SW_PIN    10
 // Display instance
 static LGFX tft;
 
@@ -100,6 +100,7 @@ void drawAmbientSaver();
 static uint8_t _wifiLostRetry = 0;
 static String _recoverMsg = "";
 static uint32_t _recoverTimer = 0;
+static bool _homeKitStarted = false;
 
 uint32_t getPollInterval() {
     if (appState != AppState::RUNNING) return 5000;
@@ -209,7 +210,15 @@ void loop() {
             break;
 
         case AppState::CAPTIVE_PORTAL:
-            // Config server handles portal
+            wifiSetup.processPortal();
+            if (wifiSetup.isConnected()) {
+                wledDiscovery.begin();
+                configServer.begin();
+                transitionTo(AppState::WLED_CONNECTING);
+            } else if (!wifiSetup.isPortalActive()) {
+                // Portal timed out
+                ESP.restart();
+            }
             break;
 
         case AppState::WLED_CONNECTING:
@@ -269,14 +278,9 @@ void transitionTo(AppState newState) {
         }
 
         case AppState::CAPTIVE_PORTAL: {
-            bool connected = wifiSetup.begin("WLED-Bridge", 180); // blocks until portal exits
-            if (connected) {
-                wledDiscovery.begin();
-                configServer.begin();
-                transitionTo(AppState::WLED_CONNECTING);
-            } else {
-                ESP.restart();
-            }
+            Serial.println("[STATE] Captive Portal");
+            ui.showAPMode("WLED-Bridge");
+            wifiSetup.startPortal("WLED-Bridge");  // non-blocking
             break;
         }
 
@@ -292,12 +296,10 @@ void transitionTo(AppState newState) {
 
                   // Try to fetch initial state
                  if (wledClient.fetchState()) {
-                     homeKitBridge.begin(configStore.getHomeKitCode().c_str());
                      transitionTo(AppState::LOADING);
                    } else {
                       // WLED not reachable, go to recovering
                      _recoverMsg = "WLED unreachable";
-                     homeKitBridge.begin(configStore.getHomeKitCode().c_str());
                      transitionTo(AppState::RECOVERING);
                     }
                   } else {
@@ -349,6 +351,11 @@ void transitionTo(AppState newState) {
 
           case AppState::RUNNING: {
             Serial.println("[STATE] Running");
+            if (!_homeKitStarted) {
+                _homeKitStarted = true;
+                homeKitBridge.begin(configStore.getHomeKitCode().c_str());
+                Serial.println("[HomeKit] Started");
+            }
             ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());
             lastPoll = millis();
             break;
@@ -470,7 +477,6 @@ void handleButtons() {
                       configStore.setWLEDPort(device->port);
                       wledClient.setHost(device->ip, device->port);
                       wledClient.fetchState();
-                      homeKitBridge.begin(configStore.getHomeKitCode().c_str());
                        // Start async fetch of effects + presets, then go to loading screen
                      transitionTo(AppState::LOADING);
                      }

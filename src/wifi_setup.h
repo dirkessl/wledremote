@@ -5,11 +5,19 @@
 
 class WiFiSetup {
 public:
-    // Returns true if WiFi connected, false if portal timed out
+    // Try saved credentials only — no portal. Returns true if connected.
     bool begin(const char* apName = "WLED-Bridge", uint16_t portalTimeout = 180);
 
-    // Force start config portal (e.g., from menu)
-    bool startPortal(const char* apName = "WLED-Bridge");
+    // Start captive portal in non-blocking mode (call processPortal() in loop)
+    void startPortal(const char* apName = "WLED-Bridge");
+
+    // Call every loop() while portal is active.
+    // Returns true if WiFi just connected via portal.
+    // Returns false if still waiting.
+    bool processPortal();
+
+    // Returns true while the portal AP is still active
+    bool isPortalActive();
 
     // Check if we have stored WiFi credentials
     bool hasSavedCredentials();
@@ -20,8 +28,7 @@ public:
     // Get current IP as string
     String getIPAddress();
 
-     // Try to reconnect using saved credentials (non-portal)
-     // Returns true if reconnected, false after exhausting attempts
+    // Try to reconnect using saved credentials (non-blocking state machine)
     bool reconnect(uint8_t maxAttempts = 3);
 
     // Check connection status
@@ -29,6 +36,7 @@ public:
 
 private:
     bool tryConnectSaved(const String& ssid, const String& pass);
+    void saveCredentials();
     WiFiManager _wm;
 };
 
