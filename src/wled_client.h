@@ -2,6 +2,15 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <Semaphore.h>
+#include <atomic>
+
+enum class FetchStatus {
+    IDLE,
+    IN_PROGRESS,
+    DONE,
+    FAILED
+};
 
 struct WLEDState {
     bool on = false;
@@ -18,10 +27,16 @@ class WLEDClient {
 public:
     void setHost(const String& host, uint16_t port = 80);
 
-    // State queries
+    // State queries (blocking)
     bool fetchState();
     bool fetchEffects();
     bool fetchPresets();
+
+    // Asynchronous fetch of effects + presets via FreeRTOS task
+    // Returns: true if launched, false if already in progress
+    bool asyncFetchAll();
+    FetchStatus getFetchStatus() const { return _fetchStatus.load(); }
+    void clearFetchStatus() { _fetchStatus.store(FetchStatus::IDLE); }
 
     // Control
     bool togglePower();
@@ -32,11 +47,11 @@ public:
     bool setEffect(int effectId);
 
     // Getters
-    const WLEDState& getState() const { return _state; }
-    const std::vector<String>& getEffects() const { return _effects; }
-    const std::vector<std::pair<int, String>>& getPresets() const { return _presets; }
+    const WLEDState& getState() { return _state; }
+    const std::vector<String>& getEffects() { return _effects; }
+    const std::vector<std::pair<int, String>>& getPresets() { return _presets; }
 
-    bool isConfigured() const { return _host.length() > 0; }
+    const String& getHost() const { return _host; }\n    bool isConfigured() const { return _host.length() > 0; }
     bool isReachable() const { return _state.reachable; }
 
 private:
@@ -48,7 +63,9 @@ private:
     uint16_t _port = 80;
     WLEDState _state;
     std::vector<String> _effects;
-    std::vector<std::pair<int, String>> _presets;  // id, name
+    std::vector<std::pair<int, String>> _presets;    // id, name
+    std::atomic<FetchStatus> _fetchStatus{FetchStatus::IDLE};
+    SemaphoreHandle_t _dataMutex = nullptr;
 };
 
 extern WLEDClient wledClient;

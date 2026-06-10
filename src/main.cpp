@@ -27,14 +27,11 @@
 #define POWER_PIN        15
 #define LED_PIN          2
 
-#define BUTTON_MENU_PIN   0
-#define BUTTON_BACK_PIN   14
-#define ENCODER_CLK_PIN   1
-#define ENCODER_DT_PIN    17
-#define ENCODER_SW_PIN    10
-#define POWER_PIN         15
-#define LED_PIN           2
-
+#define BUTTON_MENU_PIN   BUTTON_LEFT_PIN
+#define BUTTON_BACK_PIN   BUTTON_RIGHT_PIN
+#define ENCODER_CLK_PIN   21
+#define ENCODER_DT_PIN    22
+#define ENCODER_SW_PIN    23
 // Display instance
 static LGFX tft;
 
@@ -45,6 +42,8 @@ enum class AppState {
     WIFI_CONNECTED,
     WLED_SCAN,
     WLED_SELECT,
+    WIFI_LOST,
+    LOADING,
     RUNNING
 };
 
@@ -175,10 +174,15 @@ static const PresetColor presetColors[] = {
 // Forward declarations
 void transitionTo(AppState newState);
 void handleRunningState();
+void handleWifiLostState();
+void handleLoadingState();
 void handleButtons();
 void updateScreensaver();
 void initRaindrops();
 void drawRaindrops();
+
+// WiFi reconnect state
+static uint8_t _wifiLostRetry = 0;
 
 void setup() {
     Serial.begin(115200);
@@ -220,10 +224,18 @@ void setup() {
 }
 
 void loop() {
-    // Always update buttons
+      // Always update buttons
     buttons.update();
 
-    // Handle screensaver: button press wakes display
+     // WiFi disconnect detection (only while RUNNING)
+    if (appState == AppState::RUNNING && !wifiSetup.isConnected()) {
+         Serial.println("[WiFi] Connection lost!");
+        ui.showNoWifi(3);
+        transitionTo(AppState::WIFI_LOST);
+         return;
+         }
+
+      // Handle screensaver: button press wakes display
     if (buttons.anyActivity()) {
         ui.resetActivityTimer();
         if (screenState != ScreenState::ON) {
@@ -261,12 +273,22 @@ void loop() {
         case AppState::WLED_SCAN:
             break;
 
-        case AppState::WLED_SELECT:
-            configServer.handleClient();
-            handleButtons();
-            break;
+         case AppState::WLED_SELECT:
+             configServer.handleClient();
+             handleButtons();
+             break;
 
-        case AppState::RUNNING:
+          case AppState::WIFI_LOST:
+             handleWifiLostState();
+             handleButtons();
+             break;
+
+          case AppState::LOADING:
+             handleLoadingState();
+             handleButtons();
+             break;
+
+          case AppState::RUNNING:
             handleRunningState();
             handleButtons();
             break;
@@ -295,45 +317,43 @@ void transitionTo(AppState newState) {
             break;
         }
 
-        case AppState::WIFI_CONNECTED: {
-            Serial.println("[STATE] WiFi Connected");
-            String ip = wifiSetup.getIPAddress();
-            Serial.printf("[WiFi] IP: %s\n", ip.c_str());
-            ui.showIP(ip);
+         case AppState::WIFI_CONNECTED: {
+             Serial.println("[STATE] WiFi Connected");
+             String ip = wifiSetup.getIPAddress();
+              Serial.printf("[WiFi] IP: %s\n", ip.c_str());
+             ui.showIP(ip);
 
-            // Start mDNS
-            wledDiscovery.begin();
+              // Start mDNS
+             wledDiscovery.begin();
 
-            // Start config web server
-            configServer.begin();
+              // Start config web server
+             configServer.begin();
 
-            // Check if WLED is already configured
-            if (configStore.hasWLEDConfig()) {
-                String host = configStore.getWLEDHost();
-                uint16_t port = configStore.getWLEDPort();
-                wledClient.setHost(host, port);
-                Serial.printf("[WLED] Configured: %s:%d\n", host.c_str(), port);
+              // Check if WLED is already configured
+             if (configStore.hasWLEDConfig()) {
+                 String host = configStore.getWLEDHost();
+                 uint16_t port = configStore.getWLEDPort();
+                 wledClient.setHost(host, port);
+                  //Serial.printf("[WLED] Configured: %s:%d\n", host.c_str(), port.c_str(), port);
 
-                // Try to fetch initial state
-                if (wledClient.fetchState()) {
-                    wledClient.fetchEffects();
-                    wledClient.fetchPresets();
+                  // Try to fetch initial state (state is small, keep sync)
+                 if (wledClient.fetchState()) {
+                      // Start HomeKit bridge before going to loading
+                     homeKitBridge.begin(configStore.getHomeKitCode().c_str());
 
-                    // Start HomeKit bridge
-                    homeKitBridge.begin(configStore.getHomeKitCode().c_str());
-
-                    transitionTo(AppState::RUNNING);
-                } else {
-                    // WLED not reachable, but config exists - still go to running
-                    homeKitBridge.begin(configStore.getHomeKitCode().c_str());
-                    transitionTo(AppState::RUNNING);
-                }
-            } else {
-                // No WLED config - scan for devices
-                transitionTo(AppState::WLED_SCAN);
-            }
-            break;
-        }
+                      // Fetch effects + presets asynchronously
+                     transitionTo(AppState::LOADING);
+                   } else {
+                      // WLED not reachable, but config exists - still go to running
+                     homeKitBridge.begin(configStore.getHomeKitCode().c_str());
+                     transitionTo(AppState::RUNNING);
+                    }
+                  } else {
+                     // No WLED config - scan for devices
+                 transitionTo(AppState::WLED_SCAN);
+                 }
+             break;
+           }
 
         case AppState::WLED_SCAN: {
             Serial.println("[STATE] WLED Scan");
@@ -352,12 +372,30 @@ void transitionTo(AppState newState) {
         }
 
         case AppState::WLED_SELECT: {
-            Serial.println("[STATE] WLED Select");
-            ui.showWLEDSelect(wledDiscovery.getDevices());
-            break;
-        }
+             Serial.println("[STATE] WLED Select");
+             ui.showWLEDSelect(wledDiscovery.getDevices());
+              break;
+           }
 
-        case AppState::RUNNING: {
+          case AppState::WIFI_LOST: {
+              Serial.println("[STATE] WiFi Lost");
+              ui.showNoWifi(3);
+              _wifiLostRetry = 3;
+               break;
+             }
+
+          case AppState::LOADING: {
+              Serial.println("[STATE] Loading");
+              if (wledClient.getFetchStatus() != FetchStatus::IN_PROGRESS) {
+                   // Start async fetch
+                  wledClient.clearFetchStatus();
+                  wledClient.asyncFetchAll();
+                  }
+              ui.showLoading();
+               break;
+             }
+
+          case AppState::RUNNING: {
             Serial.println("[STATE] Running");
             ui.showMainStatus(wledClient.getState());
             lastPoll = millis();
@@ -404,19 +442,17 @@ void handleButtons() {
     AppScreen screen = ui.getCurrentScreen();
 
     if (appState == AppState::RUNNING && screen == AppScreen::MAIN_STATUS) {
-        if (encoderMove != 0) {
-            int bri = wledClient.getState().brightness;
-            bri = constrain(bri + encoderMove * 25, 0, 255);
-            wledClient.setBrightness(bri);
-            delay(50);
-            wledClient.fetchState();
-            ui.showMainStatus(wledClient.getState());
-            return;
-        }
+            if (encoderMove != 0) {
+                int bri = wledClient.getState().brightness;
+                bri = constrain(bri + encoderMove * 25, 0, 255);
+                wledClient.setBrightness(bri);
+                wledClient.fetchState();
+                ui.showMainStatus(wledClient.getState());
+                return;
+            }
 
         if (encoderBtnEvt == ButtonEvent::SHORT_PRESS) {
             wledClient.togglePower();
-            delay(100);
             wledClient.fetchState();
             ui.showMainStatus(wledClient.getState());
             return;
@@ -428,8 +464,24 @@ void handleButtons() {
         }
     }
 
+    // Back from WIFI_LOST → reconfigure (AP portal)
+   if ((backEvt == ButtonEvent::SHORT_PRESS || backEvt == ButtonEvent::LONG_PRESS) &&
+       screen == AppScreen::NO_WIFI) {
+         transitionTo(AppState::WIFI_SETUP);
+          return;
+        }
+
+      // Back from LOADING → skip back to running
     if ((backEvt == ButtonEvent::SHORT_PRESS || backEvt == ButtonEvent::LONG_PRESS) &&
-        screen != AppScreen::MAIN_STATUS && appState == AppState::RUNNING) {
+       (screen == AppScreen::LOADING)) {
+         wledClient.clearFetchStatus();
+        transitionTo(AppState::RUNNING);
+          return;
+        }
+
+      // Back from submenu → main status
+    if ((backEvt == ButtonEvent::SHORT_PRESS || backEvt == ButtonEvent::LONG_PRESS) &&
+       screen != AppScreen::MAIN_STATUS && appState == AppState::RUNNING) {
         ui.showMainStatus(wledClient.getState());
         return;
     }
@@ -454,19 +506,18 @@ void handleButtons() {
                 ui.showWLEDSelect(wledDiscovery.getDevices());
             }
             if (encoderBtnEvt == ButtonEvent::SHORT_PRESS) {
-                int idx = ui.getSelectedIndex();
-                const WLEDDevice* device = wledDiscovery.getDevice(idx);
-                if (device) {
-                    configStore.setWLEDHost(device->ip);
-                    configStore.setWLEDPort(device->port);
-                    wledClient.setHost(device->ip, device->port);
-                    wledClient.fetchState();
-                    wledClient.fetchEffects();
-                    wledClient.fetchPresets();
-                    homeKitBridge.begin(configStore.getHomeKitCode().c_str());
-                    transitionTo(AppState::RUNNING);
+                 int idx = ui.getSelectedIndex();
+                 const WLEDDevice* device = wledDiscovery.getDevice(idx);
+                  if (device) {
+                     configStore.setWLEDHost(device->ip);
+                      configStore.setWLEDPort(device->port);
+                      wledClient.setHost(device->ip, device->port);
+                      wledClient.fetchState();
+                      homeKitBridge.begin(configStore.getHomeKitCode().c_str());
+                       // Start async fetch of effects + presets, then go to loading screen
+                     transitionTo(AppState::LOADING);
+                     }
                 }
-            }
             break;
 
         case AppScreen::MAIN_STATUS:
@@ -520,12 +571,11 @@ void handleButtons() {
             }
             if (encoderBtnEvt == ButtonEvent::SHORT_PRESS) {
                 int idx = ui.getSelectedIndex();
-                if (idx >= 0 && idx < 12) {
-                    wledClient.setColor(presetColors[idx].r, presetColors[idx].g, presetColors[idx].b);
-                    delay(100);
-                    wledClient.fetchState();
-                    ui.showMainStatus(wledClient.getState());
-                }
+                    if (idx >= 0 && idx < 12) {
+                        wledClient.setColor(presetColors[idx].r, presetColors[idx].g, presetColors[idx].b);
+                        wledClient.fetchState();
+                        ui.showMainStatus(wledClient.getState());
+                    }
             }
             break;
 
@@ -533,8 +583,7 @@ void handleButtons() {
             if (encoderMove != 0) {
                 int bri = wledClient.getState().brightness;
                 bri = constrain(bri + encoderMove * 25, 0, 255);
-                wledClient.setBrightness(bri);
-                delay(50);
+                wledClient.setBrightness(brightness);
                 wledClient.fetchState();
                 ui.showBrightness(wledClient.getState().brightness);
             }
@@ -677,7 +726,61 @@ void updateScreensaver() {
             break;
 
         case ScreenState::OFF:
-            // Display off, waiting for button press
-            break;
+             // Display off, waiting for button press
+             break;
+       }
     }
-}
+
+   void handleWifiLostState() {
+        // Try to reconnect every 5 seconds (non-blocking)
+         static uint32_t _lastReconnect = 0;
+         uint32_t now = millis();
+        if (now - _lastReconnect >= 5000 && _wifiLostRetry > 0) {
+             _lastReconnect = now;
+             Serial.printf("[WiFi] Reconnecting... attempt %d\n", _wifiLostRetry);
+
+              if (!wifiSetup.reconnect()) {
+                  // Reconnect blocked during attempt, show status again
+                   ui.showNoWifi(--_wifiLostRetry);
+                 } else {
+                    // Reconnected! Restart mDNS and config server
+                    wledDiscovery.begin();
+                      transitionTo(AppState::RUNNING);
+                    }
+               }
+
+            if (_wifiLostRetry <= 0) {
+                ui.showNoWifi(0);    // "Reconnection failed"
+                  }
+        }
+
+   // Handle loading state — wait for async fetch to complete with timeout
+   static uint32_t _loadingStart = 0;
+   static constexpr uint32_t LOADING_TIMEOUT_MS = 15000;
+
+   void handleLoadingState() {
+       uint32_t now = millis();
+
+         // Start async fetch on first call
+        if (wledClient.getFetchStatus() == FetchStatus::IDLE) {
+             _loadingStart = now;
+            wledClient.asyncFetchAll();
+          }
+
+         // Periodically redraw loading screen with animated dots
+         static uint32_t _lastRender = 0;
+        if (now - _lastRender >= 500) {
+             _lastRender = now;
+            ui.showLoading();
+           }
+
+         // Check completion or timeout
+        if (wledClient.getFetchStatus() == FetchStatus::DONE) {
+              wledClient.clearFetchStatus();
+             transitionTo(AppState::RUNNING);
+            } else if (now - _loadingStart >= LOADING_TIMEOUT_MS) {
+                Serial.println("[WLED] Loading timeout, proceeding to RUNNING");
+                 wledClient.clearFetchStatus();
+                transitionTo(AppState::RUNNING);
+               }
+          }

@@ -37,35 +37,16 @@ bool WiFiSetup::begin(const char* apName, uint16_t portalTimeout) {
     String pass = wifiPrefs.getString("pass", "");
     wifiPrefs.end();
 
-    if (ssid.length() > 0) {
-        Serial.printf("[WiFi] Trying saved SSID: %s (pass len: %d)\n", ssid.c_str(), pass.length());
-        WiFi.mode(WIFI_STA);
-        WiFi.persistent(false);
+     if (ssid.length() > 0) {
+         Serial.printf("[WiFi] Trying saved SSID: %s (pass len: %d)\n", ssid.c_str(), pass.length());
 
-        // Try up to 2 connection attempts
-        for (int attempt = 1; attempt <= 2; attempt++) {
-            Serial.printf("[WiFi] Connection attempt %d/2\n", attempt);
-            WiFi.begin(ssid.c_str(), pass.c_str());
-
-            uint32_t start = millis();
-            while (WiFi.status() != WL_CONNECTED && (millis() - start) < 20000) {
-                delay(250);
-                Serial.print(".");
-            }
-            Serial.println();
-
-            if (WiFi.status() == WL_CONNECTED) {
-                Serial.println("[WiFi] Connected with saved credentials");
-                return true;
-            }
-
-            Serial.printf("[WiFi] Attempt %d failed, status: %d\n", attempt, WiFi.status());
-            WiFi.disconnect(true);
-            delay(1000);
-        }
+         // Try connection with saved credentials
+        if (tryConnectSaved(ssid, pass)) {
+            return true;
+         }
 
         Serial.println("[WiFi] Saved credentials failed, starting portal");
-    } else {
+     } else {
         Serial.println("[WiFi] No saved credentials found");
     }
 
@@ -105,8 +86,54 @@ bool WiFiSetup::begin(const char* apName, uint16_t portalTimeout) {
         }
     }
 
+     return connected;
+   }
+
+// Reconnect using saved credentials (called from main loop after detecting disconnect)
+bool WiFiSetup::reconnect(uint8_t maxAttempts) {
+    wifiPrefs.begin("wifi-creds", true);
+    String ssid = wifiPrefs.getString("ssid", "");
+    String pass = wifiPrefs.getString("pass", "");
+    wifiPrefs.end();
+
+    if (ssid.length() == 0) return false;
+
+    Serial.printf("[WiFi] Reconnect attempt (max %d), SSID: %s\n", maxAttempts, ssid.c_str());
+    bool connected = tryConnectSaved(ssid, pass);
+    if (!connected) {
+        Serial.println("[WiFi] Reconnect failed");
+       }
     return connected;
-}
+   }
+
+// Try connecting with given credentials (up to 2 attempts per call)
+bool WiFiSetup::tryConnectSaved(const String& ssid, const String& pass) {
+    WiFi.mode(WIFI_STA);
+    WiFi.persistent(false);
+
+    for (int attempt = 1; attempt <= 2; attempt++) {
+        Serial.printf("[WiFi] Connection attempt %d/2\n", attempt);
+        WiFi.begin(ssid.c_str(), pass.c_str());
+
+        uint32_t start = millis();
+        while (WiFi.status() != WL_CONNECTED && (millis() - start) < 20000) {
+            delay(250);
+            Serial.print(".");
+           }
+        Serial.println();
+
+        if (WiFi.status() == WL_CONNECTED) {
+            Serial.println("[WiFi] Connected with saved credentials");
+            return true;
+           }
+
+        Serial.printf("[WiFi] Attempt %d failed, status: %d\n", attempt, WiFi.status());
+        WiFi.disconnect(true);
+        delay(1000);
+       }
+
+    return false;
+   }
 
 bool WiFiSetup::hasSavedCredentials() {
     Preferences prefs;

@@ -443,7 +443,7 @@ void UI::showMainStatus(const WLEDState& state) {
     _sprite.setCursor(12, footY);
     _sprite.print("Menu");
     _sprite.setCursor(SCREEN_W - 42, footY);
-    _sprite.print("On/Off");
+    _sprite.print("Back");
 
     update();
 }
@@ -640,7 +640,66 @@ void UI::showMessage(const String& title, const String& message) {
     _sprite.setCursor(10, CONTENT_Y + 40);
     _sprite.println(message);
     update();
-}
+   }
+
+void UI::showNoWifi(int retryAttempts) {
+    _screen = AppScreen::NO_WIFI;
+    _sprite.fillScreen(0x1C1C1EU);
+
+      // Warning icon (triangle)
+    int cx = SCREEN_W / 2;
+    int cy = CONTENT_Y + 40;
+    uint32_t warnColor = 0xFFAA00U;
+    _sprite.drawTriangle(cx, cy - 24, cx - 24, cy + 20, cx + 24, cy + 20, warnColor);
+    _sprite.fillCircle(cx, cy - 4, 3, warnColor);
+    _sprite.drawLine(cx, cy + 2, cx, cy + 10, warnColor);
+
+      // Message text
+    _sprite.setTextColor(COL_TEXT);
+    _sprite.setTextSize(1);
+    int msgW = 8 * 6;
+    _sprite.setCursor((SCREEN_W - msgW) / 2, cy + 36);
+    _sprite.print("Lost WiFi");
+
+    _sprite.setTextColor(COL_DIM);
+    if (retryAttempts > 0) {
+        String retryStr = "Retrying attempt " + String(retryAttempts);
+        _sprite.setCursor((SCREEN_W - retryStr.length() * 6) / 2, cy + 54);
+        _sprite.print(retryStr);
+        } else {
+        String failStr = "Reconnection failed";
+        _sprite.setCursor((SCREEN_W - failStr.length() * 6) / 2, cy + 54);
+        _sprite.print(failStr);
+          }
+
+    _sprite.setTextColor(COL_DIM);
+    _sprite.setTextSize(1);
+    _sprite.setCursor(10, SCREEN_H - FOOTER_H + 8);
+    _sprite.print("[Back] Reconfigure");
+
+    update();
+    }
+
+void UI::showLoading() {
+    _screen = AppScreen::LOADING;
+    _sprite.fillScreen(0x1C1C1EU);
+
+      // Center "Loading presets..." text
+    _sprite.setTextColor(COL_TEXT);
+    _sprite.setTextSize(2);
+    int tw = 18 * 12;
+    _sprite.setCursor((SCREEN_W - tw) / 2, CONTENT_Y + 50);
+    _sprite.print("Loading presets");
+
+      // Subtitle
+    _sprite.setTextColor(COL_DIM);
+    _sprite.setTextSize(1);
+    String sub = "Please wait...";
+    _sprite.setCursor((SCREEN_W - sub.length() * 6) / 2, CONTENT_Y + 75);
+    _sprite.print(sub);
+
+    update();
+    }
 
 bool UI::handleLeft(ButtonEvent event) {
     if (event == ButtonEvent::NONE) return false;

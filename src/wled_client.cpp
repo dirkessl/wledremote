@@ -42,49 +42,143 @@ bool WLEDClient::fetchState() {
     }
 
     return true;
-}
+   }
+
+// ---- Async fetch via FreeRTOS task ----
+
+static void asyncFetchTask(void* arg) {
+    WLEDClient* client = static_cast<WLEDClient*>(arg);
+    HTTPClient http;
+
+    // Fetch effects first (small payload, ~2-3KB)
+        if (!client->getHost().isEmpty()) {
+            String url = "http://" + client->getHost() + ":" + String(client->_port) + "/json/effects";
+
+        http.begin(url);
+        http.setTimeout(3000);
+        int code = http.GET();
+
+        if (code == HTTP_CODE_OK) {
+            String response = http.getString();
+            JsonDocument doc;
+            DeserializationError err = deserializeJson(doc, response);
+            if (!err) {
+                xSemaphoreTake(client->_dataMutex, portMAX_DELAY);
+                client->_effects.clear();
+                JsonArray arr = doc.as<JsonArray>();
+                for (JsonVariant v : arr) {
+                    client->_effects.push_back(v.as<String>());
+                    }
+                xSemaphoreGive(client->_dataMutex);
+                }
+            }
+        http.end();
+        }
+
+    // Fetch presets (larger payload, can be ~50KB)
+        if (!client->getHost().isEmpty()) {
+            url = "http://" + client->getHost() + ":" + String(client->_port) + "/presets.json";
+
+        http.begin(url);
+        http.setTimeout(10000);  // longer timeout for larger payload
+        code = http.GET();
+
+        if (code == HTTP_CODE_OK) {
+            String response = http.getString();
+            JsonDocument doc;
+            DeserializationError err = deserializeJson(doc, response);
+            if (!err) {
+                xSemaphoreTake(client->_dataMutex, portMAX_DELAY);
+                client->_presets.clear();
+                for (JsonPair kv : doc.as<JsonObject>()) {
+                    int id = atoi(kv.key().c_str());
+                    String fallback = "Preset " + String(id);
+                    const char* n = kv.value()["n"] | fallback.c_str();
+                    client->_presets.push_back({id, String(n)});
+                    }
+                xSemaphoreGive(client->_dataMutex);
+                }
+            }
+        http.end();
+        }
+
+    Serial.println("[WLED] Async fetch complete");
+     client->_fetchStatus.store(FetchStatus::DONE);
+    vTaskDelete(NULL);
+     }
+
+bool WLEDClient::asyncFetchAll() {
+    FetchStatus current = _fetchStatus.load();
+    if (current == FetchStatus::IN_PROGRESS) return false;
+
+     // Create mutex on first use
+    if (!_dataMutex) {
+        _dataMutex = xSemaphoreCreateRecursiveMutex();
+        if (!_dataMutex) {
+            Serial.println("[WLED] Failed to create mutex");
+            return false;
+            }
+        }
+
+    _fetchStatus.store(FetchStatus::IN_PROGRESS);
+    Serial.println("[WLED] Starting async fetch...");
+
+    BaseType_t ret = xTaskCreate(
+         asyncFetchTask,
+         "wledFetch", 4096, this,   // 4KB stack for HTTPClient + JSON
+        1,                          // priority
+        NULL);                      // handle not needed
+
+     if (ret != pdPASS) {
+         Serial.println("[WLED] Failed to create fetch task");
+          _fetchStatus.store(FetchStatus::FAILED);
+         return false;
+           }
+
+    return true;
+      }
 
 bool WLEDClient::fetchEffects() {
-    String response = httpGet("/json/effects");
-    if (response.isEmpty()) return false;
+     String response = httpGet("/json/effects");
+     if (response.isEmpty()) return false;
 
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, response);
-    if (err) return false;
+     JsonDocument doc;
+     DeserializationError err = deserializeJson(doc, response);
+     if (err) return false;
 
-    _effects.clear();
-    JsonArray arr = doc.as<JsonArray>();
-    for (JsonVariant v : arr) {
-        _effects.push_back(v.as<String>());
-    }
-    return true;
-}
+       _effects.clear();
+     JsonArray arr = doc.as<JsonArray>();
+     for (JsonVariant v : arr) {
+          _effects.push_back(v.as<String>());
+       }
+     return true;
+      }
 
 bool WLEDClient::fetchPresets() {
-    String response = httpGet("/presets.json");
-    if (response.isEmpty()) return false;
+     String response = httpGet("/presets.json");
+     if (response.isEmpty()) return false;
 
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, response);
-    if (err) return false;
+     JsonDocument doc;
+     DeserializationError err = deserializeJson(doc, response);
+     if (err) return false;
 
-    _presets.clear();
-    for (JsonPair kv : doc.as<JsonObject>()) {
-        int id = atoi(kv.key().c_str());
-        String fallback = "Preset " + String(id);
-        const char* n = kv.value()["n"] | fallback.c_str();
-         _presets.push_back({id, String(n)});
-    }
-    return true;
-}
+       _presets.clear();
+     for (JsonPair kv : doc.as<JsonObject>()) {
+         int id = atoi(kv.key().c_str());
+         String fallback = "Preset " + String(id);
+         const char* n = kv.value()["n"] | fallback.c_str();
+           _presets.push_back({id, String(n)});
+       }
+     return true;
+      }
 
 bool WLEDClient::togglePower() {
-    return sendState("{\"on\":\"t\"}");
-}
+     return sendState("{\"on\":\"t\"}");
+       }
 
 bool WLEDClient::setPower(bool on) {
-    return sendState(on ? "{\"on\":true}" : "{\"on\":false}");
-}
+     return sendState(on ? "{\"on\":true}" : "{\"on\":false}");
+       }
 
 bool WLEDClient::setBrightness(uint8_t bri) {
     return sendState("{\"bri\":" + String(bri) + "}");

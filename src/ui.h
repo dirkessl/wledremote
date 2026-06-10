@@ -19,7 +19,9 @@ enum class AppScreen {
     COLOR_PICKER,
     BRIGHTNESS,
     PRESETS,
-    EFFECTS
+    EFFECTS,
+    NO_WIFI,
+    LOADING
 };
 
 // Menu items for the main menu
@@ -51,11 +53,13 @@ public:
     void showBrightness(uint8_t currentBri);
     void showPresets(const std::vector<std::pair<int, String>>& presets);
     void showEffects(const std::vector<String>& effects);
-    void showError(const String& message);
+     void showError(const String& message);
     void showMessage(const String& title, const String& message);
     void showHomeKitPairing(const String& setupCode, const String& setupURI);
+    void showNoWifi(int retryAttempts);
+    void showLoading();
 
-    // Handle button input for current screen
+      // Handle button input for current screen
     // Returns true if the UI handled the event (no further processing needed)
     bool handleLeft(ButtonEvent event);
     bool handleRight(ButtonEvent event);

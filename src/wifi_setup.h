@@ -20,10 +20,15 @@ public:
     // Get current IP as string
     String getIPAddress();
 
+     // Try to reconnect using saved credentials (non-portal)
+     // Returns true if reconnected, false after exhausting attempts
+    bool reconnect(uint8_t maxAttempts = 3);
+
     // Check connection status
     bool isConnected();
 
 private:
+    bool tryConnectSaved(const String& ssid, const String& pass);
     WiFiManager _wm;
 };
 
