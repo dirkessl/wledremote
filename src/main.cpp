@@ -38,13 +38,14 @@ static LGFX tft;
 // Application state
 enum class AppState {
     BOOT,
-    WIFI_SETUP,
-    WIFI_CONNECTED,
+    WIFI_CONNECTING,
+    CAPTIVE_PORTAL,
+    WLED_CONNECTING,
+    RUNNING,
+    RECOVERING,
     WLED_SCAN,
     WLED_SELECT,
-    WIFI_LOST,
-    LOADING,
-    RUNNING
+    LOADING
 };
 
 static AppState appState = AppState::BOOT;
@@ -60,108 +61,22 @@ enum class ScreenState {
 };
 static ScreenState screenState = ScreenState::ON;
 static uint32_t screenStateStart = 0;
-static constexpr uint32_t SCREEN_ON_MS    = 10000;
-static constexpr uint32_t SCREEN_DIM_MS   = 10000;
-static constexpr uint32_t SCREEN_SAVER_MS = 10000;
+static constexpr uint32_t SCREEN_ON_MS    = 60000;
+static constexpr uint32_t SCREEN_DIM_MS   = 60000;
+static constexpr uint32_t SCREEN_SAVER_MS = 60000;
 
 // Cat screensaver animation state
-struct FallingCat {
-    int16_t x, y;
-    int16_t speed;
+// Ambient screensaver state
+struct AmbientBlob {
+    float x, y;
+    float dx, dy;
+    float radius;
     uint16_t color;
-    uint8_t face;  // which cat face to draw
-    bool active;
 };
-static constexpr int MAX_DROPS = 8;
-static FallingCat drops[MAX_DROPS];
-static uint32_t lastDropFrame = 0;
+static constexpr int NUM_BLOBS = 5;
+static AmbientBlob blobs[NUM_BLOBS];
+static uint32_t lastBlobFrame = 0;
 static bool saverInitialized = false;
-
-// 16x16 cat face bitmaps (1 bit per pixel, MSB first)
-// Cat 1: round face, pointy ears, happy eyes
-static const uint8_t cat1[] PROGMEM = {
-    0b00000000, 0b00000000,
-    0b00100000, 0b00000100,
-    0b01110000, 0b00001110,
-    0b01111000, 0b00011110,
-    0b01111111, 0b11111110,
-    0b00111111, 0b11111100,
-    0b00111111, 0b11111100,
-    0b00111001, 0b10011100,
-    0b00111111, 0b11111100,
-    0b00111111, 0b11111100,
-    0b00111010, 0b01011100,
-    0b00111100, 0b00111100,
-    0b00011111, 0b11111000,
-    0b00001111, 0b11110000,
-    0b00000111, 0b11100000,
-    0b00000000, 0b00000000,
-};
-
-// Cat 2: wider face, ^ eyes
-static const uint8_t cat2[] PROGMEM = {
-    0b00000000, 0b00000000,
-    0b01000000, 0b00000010,
-    0b01100000, 0b00000110,
-    0b01110000, 0b00001110,
-    0b01111111, 0b11111110,
-    0b00111111, 0b11111100,
-    0b00111111, 0b11111100,
-    0b00110101, 0b01011100,
-    0b00111001, 0b10011100,
-    0b00111111, 0b11111100,
-    0b00111010, 0b01011100,
-    0b00111101, 0b10111100,
-    0b00011111, 0b11111000,
-    0b00001111, 0b11110000,
-    0b00000111, 0b11100000,
-    0b00000000, 0b00000000,
-};
-
-// Cat 3: sleepy/content face
-static const uint8_t cat3[] PROGMEM = {
-    0b00000000, 0b00000000,
-    0b00100000, 0b00000100,
-    0b01110000, 0b00001110,
-    0b01111000, 0b00011110,
-    0b01111111, 0b11111110,
-    0b00111111, 0b11111100,
-    0b00111111, 0b11111100,
-    0b00111111, 0b11111100,
-    0b00110110, 0b01101100,
-    0b00111111, 0b11111100,
-    0b00111010, 0b01011100,
-    0b00111100, 0b00111100,
-    0b00011111, 0b11111000,
-    0b00001111, 0b11110000,
-    0b00000111, 0b11100000,
-    0b00000000, 0b00000000,
-};
-
-// Cat 4: surprised face, O eyes
-static const uint8_t cat4[] PROGMEM = {
-    0b00000000, 0b00000000,
-    0b01000000, 0b00000010,
-    0b01100000, 0b00000110,
-    0b01110000, 0b00001110,
-    0b01111111, 0b11111110,
-    0b00111111, 0b11111100,
-    0b00110110, 0b01101100,
-    0b00110110, 0b01101100,
-    0b00110110, 0b01101100,
-    0b00111111, 0b11111100,
-    0b00111100, 0b00111100,
-    0b00111110, 0b01111100,
-    0b00011111, 0b11111000,
-    0b00001111, 0b11110000,
-    0b00000111, 0b11100000,
-    0b00000000, 0b00000000,
-};
-
-static const uint8_t* catBitmaps[] = { cat1, cat2, cat3, cat4 };
-static constexpr int CAT_W = 16;
-static constexpr int CAT_H = 16;
-static constexpr int NUM_CAT_FACES = 4;
 
 // Predefined colors for color picker
 struct PresetColor { uint8_t r, g, b; };
@@ -174,15 +89,28 @@ static const PresetColor presetColors[] = {
 // Forward declarations
 void transitionTo(AppState newState);
 void handleRunningState();
-void handleWifiLostState();
+void handleRecoveringState();
 void handleLoadingState();
 void handleButtons();
 void updateScreensaver();
-void initRaindrops();
-void drawRaindrops();
+void initAmbientSaver();
+void drawAmbientSaver();
 
 // WiFi reconnect state
 static uint8_t _wifiLostRetry = 0;
+static String _recoverMsg = "";
+static uint32_t _recoverTimer = 0;
+
+uint32_t getPollInterval() {
+    if (appState != AppState::RUNNING) return 5000;
+    switch (screenState) {
+        case ScreenState::ON: return 1000;
+        case ScreenState::DIM: return 2000;
+        case ScreenState::SAVER: return 4000;
+        case ScreenState::OFF: return 10000;
+    }
+    return 2000;
+}
 
 void setup() {
     Serial.begin(115200);
@@ -209,6 +137,9 @@ void setup() {
 
     // Initialize config store (NVS)
     configStore.begin();
+    
+    // Load cached wled data
+    wledClient.loadCache();
 
     // Onboard LED
     pinMode(LED_PIN, OUTPUT);
@@ -220,7 +151,7 @@ void setup() {
     screenStateStart = millis();
 
     // Transition to WiFi setup
-    transitionTo(AppState::WIFI_SETUP);
+    transitionTo(AppState::WIFI_CONNECTING);
 }
 
 void loop() {
@@ -230,10 +161,20 @@ void loop() {
      // WiFi disconnect detection (only while RUNNING)
     if (appState == AppState::RUNNING && !wifiSetup.isConnected()) {
          Serial.println("[WiFi] Connection lost!");
-        ui.showNoWifi(3);
-        transitionTo(AppState::WIFI_LOST);
+        _recoverMsg = "Lost WiFi connection";
+        ui.showRecovering(_recoverMsg);
+        transitionTo(AppState::RECOVERING);
          return;
          }
+
+    // WLED disconnect detection (only while RUNNING)
+    if (appState == AppState::RUNNING && !wledClient.isReachable() && (millis() - lastPoll > getPollInterval() * 2)) {
+         Serial.println("[WLED] Connection lost!");
+        _recoverMsg = "Lost WLED connection";
+        ui.showRecovering(_recoverMsg);
+        transitionTo(AppState::RECOVERING);
+         return;
+    }
 
       // Handle screensaver: button press wakes display
     if (buttons.anyActivity()) {
@@ -245,7 +186,10 @@ void loop() {
             saverInitialized = false;
             // Redraw current screen
             if (appState == AppState::RUNNING) {
-                ui.showMainStatus(wledClient.getState());
+                // Immediate poll on wake
+                wledClient.fetchState();
+                lastPoll = millis();
+                ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());
             }
         } else {
             screenStateStart = millis();  // Reset timer on activity
@@ -260,14 +204,15 @@ void loop() {
         case AppState::BOOT:
             break;
 
-        case AppState::WIFI_SETUP:
-            // WiFiManager blocks during portal, so we get here after it returns
+        case AppState::WIFI_CONNECTING:
+            // Config server running if connected, but WiFi manager handles portal
             break;
 
-        case AppState::WIFI_CONNECTED:
-            // Config server running, handle requests
-            configServer.handleClient();
-            handleButtons();
+        case AppState::CAPTIVE_PORTAL:
+            // Config server handles portal
+            break;
+
+        case AppState::WLED_CONNECTING:
             break;
 
         case AppState::WLED_SCAN:
@@ -278,8 +223,8 @@ void loop() {
              handleButtons();
              break;
 
-          case AppState::WIFI_LOST:
-             handleWifiLostState();
+          case AppState::RECOVERING:
+             handleRecoveringState();
              handleButtons();
              break;
 
@@ -299,54 +244,61 @@ void transitionTo(AppState newState) {
     appState = newState;
 
     switch (newState) {
-        case AppState::WIFI_SETUP: {
-            Serial.println("[STATE] WiFi Setup");
+        case AppState::WIFI_CONNECTING: {
+            Serial.println("[STATE] WiFi Connecting");
             if (wifiSetup.hasSavedCredentials()) {
-                ui.showConnecting();
+                ui.showWifiConnecting();
             } else {
                 ui.showAPMode("WLED-Bridge");
+                transitionTo(AppState::CAPTIVE_PORTAL);
+                return;
             }
 
             bool connected = wifiSetup.begin("WLED-Bridge", 180);
             if (connected) {
-                transitionTo(AppState::WIFI_CONNECTED);
+                // Start mDNS and web server
+                wledDiscovery.begin();
+                configServer.begin();
+                transitionTo(AppState::WLED_CONNECTING);
             } else {
-                Serial.println("[WiFi] Portal timeout, restarting...");
+                Serial.println("[WiFi] Connection failed, showing portal");
+                ui.showAPMode("WLED-Bridge");
+                transitionTo(AppState::CAPTIVE_PORTAL);
+            }
+            break;
+        }
+
+        case AppState::CAPTIVE_PORTAL: {
+            bool connected = wifiSetup.begin("WLED-Bridge", 180); // blocks until portal exits
+            if (connected) {
+                wledDiscovery.begin();
+                configServer.begin();
+                transitionTo(AppState::WLED_CONNECTING);
+            } else {
                 ESP.restart();
             }
             break;
         }
 
-         case AppState::WIFI_CONNECTED: {
-             Serial.println("[STATE] WiFi Connected");
-             String ip = wifiSetup.getIPAddress();
-              Serial.printf("[WiFi] IP: %s\n", ip.c_str());
-             ui.showIP(ip);
-
-              // Start mDNS
-             wledDiscovery.begin();
-
-              // Start config web server
-             configServer.begin();
+         case AppState::WLED_CONNECTING: {
+             Serial.println("[STATE] WLED Connecting");
+             ui.showWledConnecting();
 
               // Check if WLED is already configured
              if (configStore.hasWLEDConfig()) {
                  String host = configStore.getWLEDHost();
                  uint16_t port = configStore.getWLEDPort();
                  wledClient.setHost(host, port);
-                  //Serial.printf("[WLED] Configured: %s:%d\n", host.c_str(), port.c_str(), port);
 
-                  // Try to fetch initial state (state is small, keep sync)
+                  // Try to fetch initial state
                  if (wledClient.fetchState()) {
-                      // Start HomeKit bridge before going to loading
                      homeKitBridge.begin(configStore.getHomeKitCode().c_str());
-
-                      // Fetch effects + presets asynchronously
                      transitionTo(AppState::LOADING);
                    } else {
-                      // WLED not reachable, but config exists - still go to running
+                      // WLED not reachable, go to recovering
+                     _recoverMsg = "WLED unreachable";
                      homeKitBridge.begin(configStore.getHomeKitCode().c_str());
-                     transitionTo(AppState::RUNNING);
+                     transitionTo(AppState::RECOVERING);
                     }
                   } else {
                      // No WLED config - scan for devices
@@ -366,7 +318,7 @@ void transitionTo(AppState newState) {
                 // No devices found - show IP for manual config via web UI
                 ui.showIP(wifiSetup.getIPAddress());
                 ui.showMessage("No WLED Found", "Use web UI to\nconfigure manually:\n" + wifiSetup.getIPAddress());
-                appState = AppState::WIFI_CONNECTED;
+                appState = AppState::RUNNING;
             }
             break;
         }
@@ -377,10 +329,10 @@ void transitionTo(AppState newState) {
               break;
            }
 
-          case AppState::WIFI_LOST: {
-              Serial.println("[STATE] WiFi Lost");
-              ui.showNoWifi(3);
-              _wifiLostRetry = 3;
+          case AppState::RECOVERING: {
+              Serial.println("[STATE] Recovering");
+              ui.showRecovering(_recoverMsg);
+              _recoverTimer = millis();
                break;
              }
 
@@ -397,7 +349,7 @@ void transitionTo(AppState newState) {
 
           case AppState::RUNNING: {
             Serial.println("[STATE] Running");
-            ui.showMainStatus(wledClient.getState());
+            ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());
             lastPoll = millis();
             break;
         }
@@ -410,15 +362,15 @@ void transitionTo(AppState newState) {
 void handleRunningState() {
     // Poll WLED state periodically
     uint32_t now = millis();
-    if (now - lastPoll >= POLL_INTERVAL_MS) {
+    if (now - lastPoll >= getPollInterval()) {
         lastPoll = now;
         if (wledClient.fetchState()) {
             // Sync HomeKit
             homeKitBridge.syncState(wledClient.getState());
 
             // Update display if on main status screen
-            if (ui.getCurrentScreen() == AppScreen::MAIN_STATUS) {
-                ui.showMainStatus(wledClient.getState());
+            if (ui.getCurrentScreen() == AppScreen::MAIN_STATUS && screenState != ScreenState::OFF) {
+                ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());
             }
         }
     }
@@ -462,12 +414,17 @@ void handleButtons() {
             ui.showMenu();
             return;
         }
+
+        if (backEvt == ButtonEvent::SHORT_PRESS) {
+            ui.showPresets(wledClient.getPresets());
+            return;
+        }
     }
 
-    // Back from WIFI_LOST → reconfigure (AP portal)
+    // Back from RECOVERING → reconfigure (AP portal)
    if ((backEvt == ButtonEvent::SHORT_PRESS || backEvt == ButtonEvent::LONG_PRESS) &&
-       screen == AppScreen::NO_WIFI) {
-         transitionTo(AppState::WIFI_SETUP);
+       screen == AppScreen::RECOVERING) {
+         transitionTo(AppState::CAPTIVE_PORTAL);
           return;
         }
 
@@ -482,7 +439,7 @@ void handleButtons() {
       // Back from submenu → main status
     if ((backEvt == ButtonEvent::SHORT_PRESS || backEvt == ButtonEvent::LONG_PRESS) &&
        screen != AppScreen::MAIN_STATUS && appState == AppState::RUNNING) {
-        ui.showMainStatus(wledClient.getState());
+        ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());
         return;
     }
 
@@ -574,7 +531,7 @@ void handleButtons() {
                     if (idx >= 0 && idx < 12) {
                         wledClient.setColor(presetColors[idx].r, presetColors[idx].g, presetColors[idx].b);
                         wledClient.fetchState();
-                        ui.showMainStatus(wledClient.getState());
+                        ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());
                     }
             }
             break;
@@ -583,7 +540,7 @@ void handleButtons() {
             if (encoderMove != 0) {
                 int bri = wledClient.getState().brightness;
                 bri = constrain(bri + encoderMove * 25, 0, 255);
-                wledClient.setBrightness(brightness);
+                wledClient.setBrightness(bri);
                 wledClient.fetchState();
                 ui.showBrightness(wledClient.getState().brightness);
             }
@@ -604,7 +561,7 @@ void handleButtons() {
                     wledClient.setPreset(presets[idx].first);
                     delay(200);
                     wledClient.fetchState();
-                    ui.showMainStatus(wledClient.getState());
+                    ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());
                 }
             }
             break;
@@ -623,7 +580,7 @@ void handleButtons() {
                     wledClient.setEffect(idx);
                     delay(200);
                     wledClient.fetchState();
-                    ui.showMainStatus(wledClient.getState());
+                    ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());
                 }
             }
             break;
@@ -633,60 +590,40 @@ void handleButtons() {
     }
 }
 
-void initRaindrops() {
-    for (int i = 0; i < MAX_DROPS; i++) {
-        drops[i].x = random(2, 170 - CAT_W);
-        drops[i].y = random(-320, -20);
-        drops[i].speed = random(2, 5);
-        drops[i].face = random(0, NUM_CAT_FACES);
-        // Pastel colors for cute cats
-        uint8_t r = random(180, 255);
-        uint8_t g = random(100, 230);
-        uint8_t b = random(180, 255);
-        drops[i].color = tft.color565(r, g, b);
-        drops[i].active = true;
-    }
-}
-
-static void drawCatBitmap(int16_t x, int16_t y, const uint8_t* bmp, uint16_t color) {
-    for (int row = 0; row < CAT_H; row++) {
-        uint8_t b0 = pgm_read_byte(&bmp[row * 2]);
-        uint8_t b1 = pgm_read_byte(&bmp[row * 2 + 1]);
-        uint16_t rowBits = ((uint16_t)b0 << 8) | b1;
-        for (int col = 0; col < CAT_W; col++) {
-            if (rowBits & (0x8000 >> col)) {
-                tft.drawPixel(x + col, y + row, color);
-            }
+void initAmbientSaver() {
+    for (int i = 0; i < NUM_BLOBS; i++) {
+        blobs[i].x = random(20, 150);
+        blobs[i].y = random(20, 300);
+        blobs[i].dx = (random(10, 30) / 100.0f) * (random(0,2) ? 1 : -1);
+        blobs[i].dy = (random(10, 30) / 100.0f) * (random(0,2) ? 1 : -1);
+        blobs[i].radius = random(10, 25);
+        
+        // Pick a soft color based on WLED color if available, or just random pastel
+        uint8_t r = wledClient.getState().r;
+        uint8_t g = wledClient.getState().g;
+        uint8_t b = wledClient.getState().b;
+        if (r < 20 && g < 20 && b < 20) {
+            r = random(100, 255); g = random(100, 255); b = random(100, 255);
         }
+        blobs[i].color = tft.color565(r/3, g/3, b/3); // dimmed
     }
 }
 
-void drawRaindrops() {
+void drawAmbientSaver() {
     uint32_t now = millis();
-    if (now - lastDropFrame < 50) return;  // ~20 fps
-    lastDropFrame = now;
+    if (now - lastBlobFrame < 50) return;  // ~20 fps
+    lastBlobFrame = now;
 
     tft.fillScreen(TFT_BLACK);
 
-    for (int i = 0; i < MAX_DROPS; i++) {
-        if (!drops[i].active) continue;
+    for (int i = 0; i < NUM_BLOBS; i++) {
+        blobs[i].x += blobs[i].dx;
+        blobs[i].y += blobs[i].dy;
 
-        drops[i].y += drops[i].speed;
+        if (blobs[i].x < blobs[i].radius || blobs[i].x > 170 - blobs[i].radius) blobs[i].dx *= -1;
+        if (blobs[i].y < blobs[i].radius || blobs[i].y > 320 - blobs[i].radius) blobs[i].dy *= -1;
 
-        // Draw cat face bitmap
-        drawCatBitmap(drops[i].x, drops[i].y, catBitmaps[drops[i].face], drops[i].color);
-
-        // Reset when off screen
-        if (drops[i].y > 320) {
-            drops[i].x = random(2, 170 - CAT_W);
-            drops[i].y = random(-30, -16);
-            drops[i].speed = random(2, 5);
-            drops[i].face = random(0, NUM_CAT_FACES);
-            uint8_t r = random(180, 255);
-            uint8_t g = random(100, 230);
-            uint8_t b = random(180, 255);
-            drops[i].color = tft.color565(r, g, b);
-        }
+        tft.fillCircle((int)blobs[i].x, (int)blobs[i].y, (int)blobs[i].radius, blobs[i].color);
     }
 }
 
@@ -713,10 +650,10 @@ void updateScreensaver() {
 
         case ScreenState::SAVER:
             if (!saverInitialized) {
-                initRaindrops();
+                initAmbientSaver();
                 saverInitialized = true;
             }
-            drawRaindrops();
+            drawAmbientSaver();
             if (elapsed >= SCREEN_SAVER_MS) {
                 screenState = ScreenState::OFF;
                 screenStateStart = millis();
@@ -731,28 +668,31 @@ void updateScreensaver() {
        }
     }
 
-   void handleWifiLostState() {
+   void handleRecoveringState() {
+        uint32_t now = millis();
         // Try to reconnect every 5 seconds (non-blocking)
-         static uint32_t _lastReconnect = 0;
-         uint32_t now = millis();
-        if (now - _lastReconnect >= 5000 && _wifiLostRetry > 0) {
-             _lastReconnect = now;
-             Serial.printf("[WiFi] Reconnecting... attempt %d\n", _wifiLostRetry);
-
-              if (!wifiSetup.reconnect()) {
-                  // Reconnect blocked during attempt, show status again
-                   ui.showNoWifi(--_wifiLostRetry);
+        if (now - _recoverTimer >= 5000) {
+             _recoverTimer = now;
+             
+             if (!wifiSetup.isConnected()) {
+                 Serial.println("[WiFi] Reconnecting...");
+                 _recoverMsg = "Reconnecting WiFi...";
+                 ui.showRecovering(_recoverMsg);
+                 if (wifiSetup.reconnect()) {
+                     wledDiscovery.begin();
+                     _recoverMsg = "Connecting WLED...";
+                     ui.showRecovering(_recoverMsg);
+                 }
+             } else {
+                 if (wledClient.fetchState()) {
+                     transitionTo(AppState::RUNNING);
                  } else {
-                    // Reconnected! Restart mDNS and config server
-                    wledDiscovery.begin();
-                      transitionTo(AppState::RUNNING);
-                    }
-               }
-
-            if (_wifiLostRetry <= 0) {
-                ui.showNoWifi(0);    // "Reconnection failed"
-                  }
+                     _recoverMsg = "Retrying WLED...";
+                     ui.showRecovering(_recoverMsg);
+                 }
+             }
         }
+    }
 
    // Handle loading state — wait for async fetch to complete with timeout
    static uint32_t _loadingStart = 0;

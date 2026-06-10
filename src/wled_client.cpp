@@ -1,8 +1,33 @@
 #include "wled_client.h"
 #include <HTTPClient.h>
 #include <WiFi.h>
+#include "config_store.h"
 
 WLEDClient wledClient;
+
+void WLEDClient::loadCache() {
+    String effJson = configStore.getCachedEffects();
+    if (effJson.length() > 2) { // longer than "[]"
+        JsonDocument doc;
+        if (!deserializeJson(doc, effJson)) {
+            _effects.clear();
+            for (JsonVariant v : doc.as<JsonArray>()) {
+                _effects.push_back(v.as<String>());
+            }
+        }
+    }
+
+    String preJson = configStore.getCachedPresets();
+    if (preJson.length() > 2) {
+        JsonDocument doc;
+        if (!deserializeJson(doc, preJson)) {
+            _presets.clear();
+            for (JsonVariant v : doc.as<JsonArray>()) {
+                _presets.push_back({v["id"].as<int>(), v["n"].as<String>()});
+            }
+        }
+    }
+}
 
 void WLEDClient::setHost(const String& host, uint16_t port) {
     _host = host;
@@ -46,7 +71,7 @@ bool WLEDClient::fetchState() {
 
 // ---- Async fetch via FreeRTOS task ----
 
-static void asyncFetchTask(void* arg) {
+void asyncFetchTask(void* arg) {
     WLEDClient* client = static_cast<WLEDClient*>(arg);
     HTTPClient http;
 
@@ -68,7 +93,8 @@ static void asyncFetchTask(void* arg) {
                 JsonArray arr = doc.as<JsonArray>();
                 for (JsonVariant v : arr) {
                     client->_effects.push_back(v.as<String>());
-                    }
+                }
+                configStore.setCachedEffects(response);
                 xSemaphoreGive(client->_dataMutex);
                 }
             }
@@ -77,11 +103,11 @@ static void asyncFetchTask(void* arg) {
 
     // Fetch presets (larger payload, can be ~50KB)
         if (!client->getHost().isEmpty()) {
-            url = "http://" + client->getHost() + ":" + String(client->_port) + "/presets.json";
+            String url = "http://" + client->getHost() + ":" + String(client->_port) + "/presets.json";
 
         http.begin(url);
         http.setTimeout(10000);  // longer timeout for larger payload
-        code = http.GET();
+        int code = http.GET();
 
         if (code == HTTP_CODE_OK) {
             String response = http.getString();
@@ -90,12 +116,22 @@ static void asyncFetchTask(void* arg) {
             if (!err) {
                 xSemaphoreTake(client->_dataMutex, portMAX_DELAY);
                 client->_presets.clear();
+                JsonDocument cacheDoc;
+                JsonArray cacheArr = cacheDoc.to<JsonArray>();
+                
                 for (JsonPair kv : doc.as<JsonObject>()) {
                     int id = atoi(kv.key().c_str());
                     String fallback = "Preset " + String(id);
                     const char* n = kv.value()["n"] | fallback.c_str();
                     client->_presets.push_back({id, String(n)});
-                    }
+                    
+                    JsonObject obj = cacheArr.add<JsonObject>();
+                    obj["id"] = id;
+                    obj["n"] = n;
+                }
+                String cacheStr;
+                serializeJson(cacheDoc, cacheStr);
+                configStore.setCachedPresets(cacheStr);
                 xSemaphoreGive(client->_dataMutex);
                 }
             }

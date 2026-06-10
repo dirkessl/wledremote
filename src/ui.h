@@ -10,7 +10,8 @@
 enum class AppScreen {
     BOOT,
     AP_MODE,
-    CONNECTING,
+    WIFI_CONNECTING,
+    WLED_CONNECTING,
     SHOW_IP,
     WLED_SCAN,
     WLED_SELECT,
@@ -20,7 +21,7 @@ enum class AppScreen {
     BRIGHTNESS,
     PRESETS,
     EFFECTS,
-    NO_WIFI,
+    RECOVERING,
     LOADING
 };
 
@@ -43,20 +44,21 @@ public:
     // Screen transitions
     void showBoot();
     void showAPMode(const String& apName);
-    void showConnecting();
+    void showWifiConnecting();
+    void showWledConnecting();
     void showIP(const String& ip);
     void showWLEDScan();
     void showWLEDSelect(const std::vector<WLEDDevice>& devices);
-    void showMainStatus(const WLEDState& state);
+    void showMainStatus(const WLEDState& state, bool isWifiConnected = true);
     void showMenu();
     void showColorPicker();
     void showBrightness(uint8_t currentBri);
     void showPresets(const std::vector<std::pair<int, String>>& presets);
     void showEffects(const std::vector<String>& effects);
-     void showError(const String& message);
+    void showError(const String& message);
     void showMessage(const String& title, const String& message);
     void showHomeKitPairing(const String& setupCode, const String& setupURI);
-    void showNoWifi(int retryAttempts);
+    void showRecovering(const String& msg);
     void showLoading();
 
       // Handle button input for current screen

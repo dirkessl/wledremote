@@ -24,6 +24,7 @@ struct WLEDState {
 };
 
 class WLEDClient {
+    friend void asyncFetchTask(void* parameter);
 public:
     void setHost(const String& host, uint16_t port = 80);
 
@@ -31,6 +32,7 @@ public:
     bool fetchState();
     bool fetchEffects();
     bool fetchPresets();
+    void loadCache();
 
     // Asynchronous fetch of effects + presets via FreeRTOS task
     // Returns: true if launched, false if already in progress
@@ -51,7 +53,8 @@ public:
     const std::vector<String>& getEffects() { return _effects; }
     const std::vector<std::pair<int, String>>& getPresets() { return _presets; }
 
-    const String& getHost() const { return _host; }\n    bool isConfigured() const { return _host.length() > 0; }
+    const String& getHost() const { return _host; }
+    bool isConfigured() const { return _host.length() > 0; }
     bool isReachable() const { return _state.reachable; }
 
 private:

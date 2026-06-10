@@ -56,6 +56,30 @@ void ConfigStore::setHomeKitCode(const String& code) {
     _prefs.putString("hk_code", code);
 }
 
+String ConfigStore::getHostname() {
+    return _prefs.getString("hostname", "wled-remote");
+}
+
+void ConfigStore::setHostname(const String& hostname) {
+    _prefs.putString("hostname", hostname);
+}
+
+String ConfigStore::getCachedPresets() {
+    return _prefs.getString("cache_presets", "[]");
+}
+
+void ConfigStore::setCachedPresets(const String& json) {
+    _prefs.putString("cache_presets", json);
+}
+
+String ConfigStore::getCachedEffects() {
+    return _prefs.getString("cache_effects", "[]");
+}
+
+void ConfigStore::setCachedEffects(const String& json) {
+    _prefs.putString("cache_effects", json);
+}
+
 void ConfigStore::factoryReset() {
     _prefs.clear();
 }

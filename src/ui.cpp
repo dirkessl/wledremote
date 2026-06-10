@@ -177,23 +177,43 @@ void UI::showAPMode(const String& apName) {
     update();
 }
 
-void UI::showConnecting() {
-    _screen = AppScreen::CONNECTING;
+void UI::showWifiConnecting() {
+    _screen = AppScreen::WIFI_CONNECTING;
     _sprite.fillScreen(0x1C1C1EU);  // iOS dark bg
 
-    // Logo centered (native 80x80)
     int logoX = (SCREEN_W - LOGO_W) / 2;
     int logoY = 60;
     drawLogo(_sprite, logoX, logoY, 0xFFFFFFU);
 
-    // "Connecting..." below logo
     _sprite.setTextColor(0xFFFFFFU);
     _sprite.setTextSize(2);
-    int textW = 12 * 12;
+    int textW = 15 * 12; // "Connecting WiFi"
     _sprite.setCursor((SCREEN_W - textW) / 2, logoY + LOGO_H + 20);
-    _sprite.print("Connecting..");
+    _sprite.print("Connecting WiFi");
 
-    // Subtitle
+    _sprite.setTextColor(0x8E8E93U);
+    _sprite.setTextSize(1);
+    int subW = 14 * 6;
+    _sprite.setCursor((SCREEN_W - subW) / 2, logoY + LOGO_H + 48);
+    _sprite.print("Please wait..");
+
+    update();
+}
+
+void UI::showWledConnecting() {
+    _screen = AppScreen::WLED_CONNECTING;
+    _sprite.fillScreen(0x1C1C1EU);  // iOS dark bg
+
+    int logoX = (SCREEN_W - LOGO_W) / 2;
+    int logoY = 60;
+    drawLogo(_sprite, logoX, logoY, 0xFFFFFFU);
+
+    _sprite.setTextColor(0xFFFFFFU);
+    _sprite.setTextSize(2);
+    int textW = 15 * 12; // "Connecting WLED"
+    _sprite.setCursor((SCREEN_W - textW) / 2, logoY + LOGO_H + 20);
+    _sprite.print("Connecting WLED");
+
     _sprite.setTextColor(0x8E8E93U);
     _sprite.setTextSize(1);
     int subW = 14 * 6;
@@ -285,69 +305,59 @@ void UI::showWLEDSelect(const std::vector<WLEDDevice>& devices) {
     update();
 }
 
-void UI::showMainStatus(const WLEDState& state) {
+void UI::showMainStatus(const WLEDState& state, bool isWifiConnected) {
     _screen = AppScreen::MAIN_STATUS;
-    _sprite.fillScreen(0x000000U);
-
-    // Apple-style palette
-    uint32_t bgColor     = 0x1E1E1EU;  // iOS dark background
-    uint32_t cardColor   = 0x2C2C2EU;  // Card/tile background
+    
+    // Apple-style palette / Mushroom card style
+    uint32_t bgColor     = 0x1E1E1EU;  // Dark background
+    uint32_t cardColor   = 0x2C2C2EU;  // Card background
     uint32_t labelColor  = 0x8E8E93U;  // Secondary label
     uint32_t textColor   = 0xFFFFFFU;  // Primary text
     uint32_t sliderBg    = 0x3A3A3CU;  // Slider track dark
-    uint32_t accentBlue  = 0x0A84FFU;  // iOS blue
     uint32_t offColor    = 0x48484AU;  // Muted when off
 
     _sprite.fillScreen(bgColor);
 
-    if (!state.reachable) {
+    // Header: Network/WLED Status
+    _sprite.setTextColor(isWifiConnected ? 0x30D158U : 0xFF453AU);
+    _sprite.setTextSize(1);
+    _sprite.setCursor(12, 10);
+    _sprite.print(isWifiConnected ? "WiFi" : "!WiFi");
+
+    _sprite.setTextColor(state.reachable ? 0x30D158U : 0xFF453AU);
+    _sprite.setCursor(SCREEN_W - 40, 10);
+    _sprite.print(state.reachable ? "WLED" : "!WLED");
+
+    if (!state.reachable || !isWifiConnected) {
         // Offline state - subtle card
         int cardX = 12, cardY = 80, cardW = SCREEN_W - 24, cardH = 70;
         _sprite.fillRoundRect(cardX, cardY, cardW, cardH, 12, cardColor);
         _sprite.setTextColor(labelColor);
         _sprite.setTextSize(1);
         _sprite.setCursor(cardX + 16, cardY + 16);
-        _sprite.print("No Response");
+        _sprite.print("Offline");
         _sprite.setTextColor(0x636366U);
         _sprite.setTextSize(1);
         _sprite.setCursor(cardX + 16, cardY + 38);
-        _sprite.print("The device is not");
-        _sprite.setCursor(cardX + 16, cardY + 52);
-        _sprite.print("responding.");
-
+        _sprite.print("Reconnecting...");
+        
         // Footer
         int footY = SCREEN_H - 28;
         _sprite.setTextColor(labelColor);
         _sprite.setTextSize(1);
         _sprite.setCursor(12, footY);
         _sprite.print("Menu");
-        _sprite.setCursor(SCREEN_W - 42, footY);
-        _sprite.print("Retry");
+        _sprite.setCursor(SCREEN_W - 55, footY);
+        _sprite.print("Presets");
         update();
         return;
     }
 
-    // --- Top area: Power icon + name ---
-    _sprite.setTextColor(textColor);
-    _sprite.setTextSize(2);
-    _sprite.setCursor(14, 12);
-    _sprite.print("Light");
-
-    // Power state pill
-    uint32_t pillColor = state.on ? accentBlue : offColor;
-    int pillX = SCREEN_W - 42;
-    int pillY = 10;
-    _sprite.fillRoundRect(pillX, pillY, 32, 18, 9, pillColor);
-    _sprite.setTextColor(textColor);
-    _sprite.setTextSize(1);
-    _sprite.setCursor(pillX + (state.on ? 8 : 5), pillY + 5);
-    _sprite.print(state.on ? "On" : "Off");
-
-    // --- Vertical slider (HomeKit style) ---
+    // --- Vertical slider (Mushroom style) ---
     int sliderX = 30;
-    int sliderY = 42;
+    int sliderY = 30;
     int sliderW = SCREEN_W - 60;
-    int sliderH = 210;
+    int sliderH = 220;
     int sliderR = 20;  // corner radius
 
     // Slider track background
@@ -358,37 +368,29 @@ void UI::showMainStatus(const WLEDState& state) {
     int fillH = (sliderH * state.brightness) / 255;
     int fillY = sliderY + sliderH - fillH;
 
-    // Fill with color (or white-ish when on, dim when off)
+    // Fill with color
     if (fillH > 0) {
         uint32_t fillColor;
         if (state.on) {
-            // Blend towards white for high brightness like HomeKit
-            int r = state.r + ((255 - state.r) * briPct) / 300;
-            int g = state.g + ((255 - state.g) * briPct) / 300;
-            int b = state.b + ((255 - state.b) * briPct) / 300;
-            fillColor = _sprite.color888(r, g, b);
+            // Use WLED color as accent if available
+            fillColor = _sprite.color888(state.r > 20 ? state.r : 20, 
+                                         state.g > 20 ? state.g : 20, 
+                                         state.b > 20 ? state.b : 20);
         } else {
-            fillColor = _sprite.color888(60, 60, 62);
+            fillColor = offColor;
         }
 
-        // Clip fill to rounded rect by drawing full rounded then overwriting top
+        // Fill logic (clipping to rounded rect)
         _sprite.fillRoundRect(sliderX, sliderY, sliderW, sliderH, sliderR, fillColor);
-        // Redraw the unfilled top portion
         if (fillH < sliderH) {
             _sprite.fillRoundRect(sliderX, sliderY, sliderW, sliderH, sliderR, sliderBg);
-            // Now draw just the filled bottom with clipping trick:
-            // Fill a rect for the bottom portion, then fix corners
             _sprite.fillRect(sliderX, fillY, sliderW, fillH, fillColor);
-            // Fix bottom rounded corners
             _sprite.fillRoundRect(sliderX, sliderY + sliderH - sliderR * 2, sliderW, sliderR * 2, sliderR, fillColor);
-            // Restore top corners if fill extends near top
             if (fillY <= sliderY + sliderR) {
                 _sprite.fillRoundRect(sliderX, sliderY, sliderW, sliderR * 2, sliderR, fillColor);
             }
-            // Clip off anything above fillY
             if (fillY > sliderY) {
                 _sprite.fillRoundRect(sliderX, sliderY, sliderW, fillY - sliderY, sliderR, sliderBg);
-                // If the clipped area is smaller than the radius, fix the edge
                 if ((fillY - sliderY) < sliderR) {
                     _sprite.fillRect(sliderX, fillY, sliderW, sliderR - (fillY - sliderY), fillColor);
                 }
@@ -396,13 +398,11 @@ void UI::showMainStatus(const WLEDState& state) {
         }
     }
 
-    // Brightness percentage label at the divider line
-    int labelH = 20;
-    int labelY = fillY - labelH / 2;
-    if (labelY < sliderY + 6) labelY = sliderY + 6;
-    if (labelY > sliderY + sliderH - labelH - 6) labelY = sliderY + sliderH - labelH - 6;
+    // Percentage Label
+    int labelY = fillY - 10;
+    if (labelY < sliderY + 10) labelY = sliderY + 10;
+    if (labelY > sliderY + sliderH - 30) labelY = sliderY + sliderH - 30;
 
-    // Draw percentage - large, centered
     _sprite.setTextColor(textColor);
     _sprite.setTextSize(2);
     char briStr[8];
@@ -411,39 +411,36 @@ void UI::showMainStatus(const WLEDState& state) {
     _sprite.setCursor(sliderX + (sliderW - textW) / 2, labelY);
     _sprite.print(briStr);
 
-    // Small sun icon at bottom of slider (brightness indicator)
-    int sunY = sliderY + sliderH - 20;
-    int sunX = sliderX + sliderW / 2;
-    _sprite.fillCircle(sunX, sunY, 4, labelColor);
-    // Sun rays
-    for (int a = 0; a < 8; a++) {
-        float angle = a * 0.785f;
-        int rx = sunX + (int)(8 * cos(angle));
-        int ry = sunY + (int)(8 * sin(angle));
-        _sprite.drawPixel(rx, ry, labelColor);
-    }
+    // Power icon text
+    _sprite.setTextColor(state.on ? textColor : labelColor);
+    _sprite.setTextSize(1);
+    const char* pwrStr = state.on ? "On" : "Off";
+    _sprite.setCursor(sliderX + (sliderW - strlen(pwrStr)*6)/2, sliderY + sliderH - 20);
+    _sprite.print(pwrStr);
 
-    // --- Bottom info: Effect/Preset ---
-    int infoY = sliderY + sliderH + 8;
+    // Bottom info: Preset / Effect
+    int infoY = sliderY + sliderH + 12;
     _sprite.setTextColor(labelColor);
     _sprite.setTextSize(1);
-    _sprite.setCursor(sliderX, infoY);
+    
+    String statusStr = "Solid Color";
     if (state.preset >= 0) {
-        _sprite.printf("Preset %d", state.preset);
+        statusStr = "Preset " + String(state.preset);
     } else if (state.effect > 0) {
-        _sprite.printf("Effect %d", state.effect);
-    } else {
-        _sprite.print("Solid Color");
+        statusStr = "Effect " + String(state.effect);
     }
+    
+    _sprite.setCursor((SCREEN_W - statusStr.length() * 6) / 2, infoY);
+    _sprite.print(statusStr);
 
-    // --- Footer ---
-    int footY = SCREEN_H - 22;
+    // Footer
+    int footY = SCREEN_H - 28;
     _sprite.setTextColor(labelColor);
     _sprite.setTextSize(1);
     _sprite.setCursor(12, footY);
     _sprite.print("Menu");
-    _sprite.setCursor(SCREEN_W - 42, footY);
-    _sprite.print("Back");
+    _sprite.setCursor(SCREEN_W - 55, footY);
+    _sprite.print("Presets");
 
     update();
 }
@@ -642,11 +639,10 @@ void UI::showMessage(const String& title, const String& message) {
     update();
    }
 
-void UI::showNoWifi(int retryAttempts) {
-    _screen = AppScreen::NO_WIFI;
+void UI::showRecovering(const String& msg) {
+    _screen = AppScreen::RECOVERING;
     _sprite.fillScreen(0x1C1C1EU);
 
-      // Warning icon (triangle)
     int cx = SCREEN_W / 2;
     int cy = CONTENT_Y + 40;
     uint32_t warnColor = 0xFFAA00U;
@@ -654,23 +650,15 @@ void UI::showNoWifi(int retryAttempts) {
     _sprite.fillCircle(cx, cy - 4, 3, warnColor);
     _sprite.drawLine(cx, cy + 2, cx, cy + 10, warnColor);
 
-      // Message text
     _sprite.setTextColor(COL_TEXT);
     _sprite.setTextSize(1);
-    int msgW = 8 * 6;
+    int msgW = 10 * 6;
     _sprite.setCursor((SCREEN_W - msgW) / 2, cy + 36);
-    _sprite.print("Lost WiFi");
+    _sprite.print("Recovering");
 
     _sprite.setTextColor(COL_DIM);
-    if (retryAttempts > 0) {
-        String retryStr = "Retrying attempt " + String(retryAttempts);
-        _sprite.setCursor((SCREEN_W - retryStr.length() * 6) / 2, cy + 54);
-        _sprite.print(retryStr);
-        } else {
-        String failStr = "Reconnection failed";
-        _sprite.setCursor((SCREEN_W - failStr.length() * 6) / 2, cy + 54);
-        _sprite.print(failStr);
-          }
+    _sprite.setCursor((SCREEN_W - msg.length() * 6) / 2, cy + 54);
+    _sprite.print(msg);
 
     _sprite.setTextColor(COL_DIM);
     _sprite.setTextSize(1);
@@ -678,7 +666,7 @@ void UI::showNoWifi(int retryAttempts) {
     _sprite.print("[Back] Reconfigure");
 
     update();
-    }
+}
 
 void UI::showLoading() {
     _screen = AppScreen::LOADING;

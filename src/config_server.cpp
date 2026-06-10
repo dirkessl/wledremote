@@ -1,4 +1,5 @@
 #include "config_server.h"
+#include "homekit_bridge.h"
 #include "config_store.h"
 #include "wled_discovery.h"
 #include "wled_client.h"
@@ -37,6 +38,8 @@ void ConfigServer::begin() {
     _server.on("/scan", HTTP_GET, [this]() { handleScan(); });
     _server.on("/status", HTTP_GET, [this]() { handleStatus(); });
     _server.on("/reset", HTTP_POST, [this]() { handleReset(); });
+    _server.on("/save_hostname", HTTP_POST, [this]() { handleSaveHostname(); });
+    _server.on("/reset_homekit", HTTP_POST, [this]() { handleResetHomeKit(); });
     _server.begin();
     _running = true;
     Serial.println("[Config] Web server started on port 8080");
@@ -83,6 +86,15 @@ void ConfigServer::handleRoot() {
     html += F("<button type='submit'>Save</button>");
     html += F("</form></div>");
 
+    // Hostname configuration
+    html += F("<div class='card'><h2>Hostname</h2>");
+    html += F("<form action='/save_hostname' method='post'>");
+    html += F("<input type='text' name='hostname' value='");
+    html += configStore.getHostname();
+    html += F("'>");
+    html += F("<button type='submit'>Save</button>");
+    html += F("</form></div>");
+
     // Discovered devices
     html += F("<div class='card'><h2>Discovered Devices</h2>");
     html += F("<button onclick=\"fetch('/scan').then(r=>r.json()).then(d=>{let h='';d.forEach(x=>{h+='<div class=device onclick=selectDevice(\\\"'+x.ip+'\\\",'+x.port+')>'+x.name+' ('+x.ip+')</div>'});document.getElementById('devices').innerHTML=h||'No devices found'})\">Scan Network</button>");
@@ -90,7 +102,10 @@ void ConfigServer::handleRoot() {
 
     // Settings
     html += F("<div class='card'><h2>Settings</h2>");
-    html += F("<form action='/reset' method='post'>");
+    html += F("<form action='/reset_homekit' method='post' style='display:inline;'>");
+    html += F("<button class='danger' type='submit' onclick='return confirm(\"Reset HomeKit pairing?\")'>Reset HomeKit</button>");
+    html += F("</form>");
+    html += F("<form action='/reset' method='post' style='display:inline;'>");
     html += F("<button class='danger' type='submit' onclick='return confirm(\"Reset all settings?\")'>Factory Reset</button>");
     html += F("</form></div>");
 
@@ -159,6 +174,31 @@ void ConfigServer::handleReset() {
     String html;
     html += FPSTR(HTML_HEADER);
     html += F("<h1>Reset Complete</h1><p>Device will restart...</p>");
+    html += FPSTR(HTML_FOOTER);
+    _server.send(200, "text/html", html);
+    delay(1000);
+    ESP.restart();
+}
+
+void ConfigServer::handleSaveHostname() {
+    String hostname = _server.arg("hostname");
+    if (hostname.length() > 0) {
+        configStore.setHostname(hostname);
+    }
+    String html;
+    html += FPSTR(HTML_HEADER);
+    html += F("<h1>Saved!</h1><p>Hostname set to: ");
+    html += hostname;
+    html += F("</p><p>Requires restart to take effect.</p><p><a href='/'>Back</a></p>");
+    html += FPSTR(HTML_FOOTER);
+    _server.send(200, "text/html", html);
+}
+
+void ConfigServer::handleResetHomeKit() {
+    homeKitBridge.reset();
+    String html;
+    html += FPSTR(HTML_HEADER);
+    html += F("<h1>HomeKit Reset Complete</h1><p>Device will restart...</p>");
     html += FPSTR(HTML_FOOTER);
     _server.send(200, "text/html", html);
     delay(1000);

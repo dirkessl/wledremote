@@ -26,6 +26,16 @@ public:
     String getHomeKitCode();
     void setHomeKitCode(const String& code);
 
+    // Hostname
+    String getHostname();
+    void setHostname(const String& hostname);
+
+    // Cached Data
+    String getCachedPresets();
+    void setCachedPresets(const String& json);
+    String getCachedEffects();
+    void setCachedEffects(const String& json);
+
     // Factory reset
     void factoryReset();
 

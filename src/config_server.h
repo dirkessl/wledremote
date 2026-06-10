@@ -16,6 +16,8 @@ private:
     void handleScan();
     void handleStatus();
     void handleReset();
+    void handleSaveHostname();
+    void handleResetHomeKit();
 
     WebServer _server{8080};
     bool _running = false;
