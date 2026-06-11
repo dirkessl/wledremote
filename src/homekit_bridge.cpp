@@ -1,3 +1,4 @@
+
 #include "homekit_bridge.h"
 
 HomeKitBridge homeKitBridge;
@@ -33,13 +34,20 @@ void WLEDLight::syncFromWLED(const WLEDState& state) {
 // ---- HomeKitBridge ----
 
 void HomeKitBridge::begin(const char* setupCode) {
+
     if (_initialized) return;
 
     _setupCode = setupCode;
     homeSpan.setLogLevel(1);
-    homeSpan.setStatusPin(2);  // Onboard LED
+    homeSpan.setStatusPin(2);
     homeSpan.setPairingCode(setupCode);
     homeSpan.setQRID(_setupID.c_str());
+
+    //homeSpan.setWifiCredentials(ssid.c_str(), pass.c_str());
+
+    Serial.printf("[HomeKit] Starting with STA IP %s",
+                  WiFi.localIP().toString().c_str());
+              
     homeSpan.begin(Category::Lighting, "WLED Bridge");
 
     // Main accessory: Light

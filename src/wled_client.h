@@ -2,7 +2,6 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <Semaphore.h>
 #include <atomic>
 
 enum class FetchStatus {

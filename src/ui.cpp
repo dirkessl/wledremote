@@ -416,7 +416,8 @@ void UI::showMainStatus(const WLEDState& state, bool isWifiConnected) {
     if (labelY < sliderY + 10) labelY = sliderY + 10;
     if (labelY > sliderY + sliderH - 30) labelY = sliderY + sliderH - 30;
 
-    _sprite.setTextColor(textColor);
+    
+    _sprite.setTextColor(0xCCCCCC);
     _sprite.setTextSize(2);
     char briStr[8];
     snprintf(briStr, sizeof(briStr), "%d%%", briPct);
@@ -464,14 +465,14 @@ void UI::showMenu() {
     _sprite.fillScreen(COL_BG);
     drawHeader("Menu");
 
-    const char* menuItems[] = {"Colors", "Brightness", "Presets", "Effects", "HomeKit", "Settings"};
+    const char* menuItems[] = {"Colors",  "Presets", "Effects", "HomeKit", "Settings"};
     int y = CONTENT_Y;
     for (int i = 0; i < _itemCount; i++) {
         drawMenuItem(y, menuItems[i], i == _selectedIndex);
         y += ITEM_H;
     }
 
-    drawFooter("Scroll", "Select");
+    drawFooter("Scroll", "Back");
     update();
 }
 
@@ -522,30 +523,6 @@ void UI::showColorPicker() {
     update();
 }
 
-void UI::showBrightness(uint8_t currentBri) {
-    _screen = AppScreen::BRIGHTNESS;
-    _sprite.fillScreen(COL_BG);
-    drawHeader("Brightness");
-
-    int percent = (currentBri * 100) / 255;
-    _sprite.setTextColor(COL_TEXT);
-    _sprite.setTextSize(3);
-    _sprite.setCursor(50, CONTENT_Y + 40);
-    _sprite.printf("%d%%", percent);
-
-    drawProgressBar(10, CONTENT_Y + 100, SCREEN_W - 20, 20, currentBri, COL_ACCENT);
-
-    _sprite.setTextColor(COL_DIM);
-    _sprite.setTextSize(1);
-    _sprite.setCursor(10, CONTENT_Y + 135);
-    _sprite.println("Left: -10%  Right: +10%");
-    _sprite.setCursor(10, CONTENT_Y + 150);
-    _sprite.println("Long press: Back");
-
-    drawFooter("-", "+");
-    update();
-}
-
 void UI::showPresets(const std::vector<std::pair<int, String>>& presets) {
     _screen = AppScreen::PRESETS;
     _itemCount = presets.size();
@@ -569,7 +546,7 @@ void UI::showPresets(const std::vector<std::pair<int, String>>& presets) {
         }
     }
 
-    drawFooter("Scroll", "Apply");
+    drawFooter("Scroll", "Back");
     update();
 }
 
@@ -588,7 +565,7 @@ void UI::showEffects(const std::vector<String>& effects) {
         y += ITEM_H;
     }
 
-    drawFooter("Scroll", "Apply");
+    drawFooter("Scroll", "Back");
     update();
 }
 

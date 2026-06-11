@@ -11,6 +11,9 @@ public:
     // Start captive portal in non-blocking mode (call processPortal() in loop)
     void startPortal(const char* apName = "WLED-Bridge");
 
+    String getSavedSSID();
+    String getSavedPassword();
+
     // Call every loop() while portal is active.
     // Returns true if WiFi just connected via portal.
     // Returns false if still waiting.

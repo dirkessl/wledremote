@@ -58,7 +58,7 @@ void ConfigServer::handleClient() {
 
 void ConfigServer::handleRoot() {
     String html;
-    html.reserve(2048);
+    html.reserve(4096);
     html += FPSTR(HTML_HEADER);
     html += F("<h1>WLED Remote Setup</h1>");
 
@@ -97,7 +97,7 @@ void ConfigServer::handleRoot() {
 
     // Discovered devices
     html += F("<div class='card'><h2>Discovered Devices</h2>");
-    html += F("<button onclick=\"fetch('/scan').then(r=>r.json()).then(d=>{let h='';d.forEach(x=>{h+='<div class=device onclick=selectDevice(\\\"'+x.ip+'\\\",'+x.port+')>'+x.name+' ('+x.ip+')</div>'});document.getElementById('devices').innerHTML=h||'No devices found'})\">Scan Network</button>");
+    html += F("<button onclick=\"scanDevices()\">Scan Network</button>");
     html += F("<div id='devices'></div></div>");
 
     // Settings
@@ -109,7 +109,33 @@ void ConfigServer::handleRoot() {
     html += F("<button class='danger' type='submit' onclick='return confirm(\"Reset all settings?\")'>Factory Reset</button>");
     html += F("</form></div>");
 
-    html += F("<script>function selectDevice(ip,port){document.querySelector('[name=host]').value=ip;document.querySelector('[name=port]').value=port}</script>");
+    html += F(R"rawliteral(
+<script>
+function selectDevice(ip, port) {
+    document.querySelector('[name=host]').value = ip;
+    document.querySelector('[name=port]').value = port;
+}
+
+function scanDevices() {
+    const devicesEl = document.getElementById('devices');
+    devicesEl.innerHTML = 'Scanning...';
+
+    fetch('/scan')
+        .then(r => r.json())
+        .then(d => {
+            let h = '';
+            d.forEach(x => {
+                h += `<div class="device" onclick="selectDevice('${x.ip}', ${x.port})">${x.name} (${x.ip})</div>`;
+            });
+            devicesEl.innerHTML = h || 'No devices found';
+        })
+        .catch(() => {
+            devicesEl.innerHTML = 'Scan failed';
+        });
+}
+</script>
+)rawliteral");
+
     html += FPSTR(HTML_FOOTER);
 
     _server.send(200, "text/html", html);

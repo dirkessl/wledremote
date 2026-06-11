@@ -1,6 +1,8 @@
 #include "wifi_setup.h"
 #include <WiFi.h>
 #include <Preferences.h>
+#include "config_server.h"
+#include "config_store.h"
 
 WiFiSetup wifiSetup;
 
@@ -102,6 +104,8 @@ bool WiFiSetup::reconnect(uint8_t maxAttempts) {
     WiFi.setAutoReconnect(true);
     WiFi.persistent(false);
     WiFi.disconnect(false, false);
+    WiFi.setHostname(configStore.getHostname().c_str());
+
     delay(100);
     WiFi.begin(ssid.c_str(), pass.c_str());
                                     
@@ -160,6 +164,23 @@ void WiFiSetup::resetCredentials() {
 String WiFiSetup::getIPAddress() {
     return WiFi.localIP().toString();
 }
+
+String WiFiSetup::getSavedSSID() {
+    Preferences prefs;
+    prefs.begin("wifi-creds", true);
+    String ssid = prefs.getString("ssid", "");
+    prefs.end();
+    return ssid;
+}
+
+String WiFiSetup::getSavedPassword() {
+    Preferences prefs;
+    prefs.begin("wifi-creds", true);
+    String pass = prefs.getString("pass", "");
+    prefs.end();
+    return pass;
+}
+
 
 bool WiFiSetup::isConnected() {
     return WiFi.status() == WL_CONNECTED;
