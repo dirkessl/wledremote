@@ -238,51 +238,39 @@ void UI::showWledConnecting() {
 
 void UI::showIP(const String& ip) {
     _screen = AppScreen::SHOW_IP;
-    _sprite.fillScreen(0x1C1C1EU);  // iOS dark bg
+    _sprite.fillScreen(0x1C1C1EU);
 
-    // Checkmark circle (success indicator)
-    int circleX = SCREEN_W / 2;
-    int circleY = 60;
-    _sprite.fillCircle(circleX, circleY, 24, 0x30D158U);  // iOS green
-    // Draw checkmark inside
-    _sprite.drawLine(circleX - 10, circleY, circleX - 3, circleY + 8, 0xFFFFFFU);
-    _sprite.drawLine(circleX - 9, circleY, circleX - 2, circleY + 8, 0xFFFFFFU);
-    _sprite.drawLine(circleX - 3, circleY + 8, circleX + 11, circleY - 8, 0xFFFFFFU);
-    _sprite.drawLine(circleX - 2, circleY + 8, circleX + 12, circleY - 8, 0xFFFFFFU);
+    String url = "http://" + ip + ":8080";
 
-    // "Connected" title
     _sprite.setTextColor(0xFFFFFFU);
     _sprite.setTextSize(2);
-    int titleW = 9 * 12;
-    _sprite.setCursor((SCREEN_W - titleW) / 2, 100);
-    _sprite.print("Connected");
+    _sprite.setCursor(52, 16);
+    _sprite.print("Settings");
 
-    // IP address in a rounded card
-    int cardX = 12, cardY = 135, cardW = SCREEN_W - 24, cardH = 50;
-    _sprite.fillRoundRect(cardX, cardY, cardW, cardH, 12, 0x2C2C2EU);
-    _sprite.setTextColor(0xFFFFFFU);
-    _sprite.setTextSize(2);
-    // Center IP in card
-    int ipW = ip.length() * 12;
-    _sprite.setCursor(cardX + (cardW - ipW) / 2, cardY + 8);
-    _sprite.print(ip);
-    // Port info below
     _sprite.setTextColor(0x8E8E93U);
     _sprite.setTextSize(1);
-    String portStr = "Config: " + ip + ":8080";
-    int portW = portStr.length() * 6;
-    _sprite.setCursor(cardX + (cardW - portW) / 2, cardY + 32);
-    _sprite.print(portStr);
+    _sprite.setCursor(16, 42);
+    _sprite.print("Scan to open config UI");
 
-    // Footer hint
-    int footY = SCREEN_H - 28;
-    _sprite.setTextColor(0x8E8E93U);
+    // Optional white background behind QR
+    int qrSize = 100;
+    int qrX = (SCREEN_W - qrSize) / 2;
+    int qrY = CONTENT_Y + 70;
+    _sprite.fillRoundRect(qrX - 6, qrY - 6, qrSize + 12, qrSize + 12, 8, 0xFFFFFFU);
+
+    // Footer in sprite too
+    _sprite.setTextColor(COL_DIM);
     _sprite.setTextSize(1);
-    _sprite.setCursor(SCREEN_W / 2 - 30, footY);
-    _sprite.print("Continue >");
+    _sprite.setCursor(10, SCREEN_H - FOOTER_H + 8);
+    drawFooter(" ", "Back");
 
-    update();
+    update();  // push sprite first
+
+    // Draw QR last, directly on display
+    _tft->qrcode(url.c_str(), qrX, qrY, qrSize, 4);
 }
+
+
 
 void UI::showWLEDScan() {
     _screen = AppScreen::WLED_SCAN;
@@ -416,7 +404,6 @@ void UI::showMainStatus(const WLEDState& state, bool isWifiConnected) {
     if (labelY < sliderY + 10) labelY = sliderY + 10;
     if (labelY > sliderY + sliderH - 30) labelY = sliderY + sliderH - 30;
 
-    
     _sprite.setTextColor(0xCCCCCC);
     _sprite.setTextSize(2);
     char briStr[8];
@@ -439,9 +426,16 @@ void UI::showMainStatus(const WLEDState& state, bool isWifiConnected) {
     
     String statusStr = "Solid Color";
     if (state.preset >= 0) {
-        statusStr = "Preset " + String(state.preset);
+        String presetName;
+        for (const auto& p : wledClient.getPresets()) {
+            if (p.first == state.preset) {
+                presetName = p.second;
+                break;
+            }
+        }
+        statusStr = presetName;
     } else if (state.effect > 0) {
-        statusStr = "Effect " + String(state.effect);
+        statusStr = state.effectName;
     }
     
     _sprite.setCursor((SCREEN_W - statusStr.length() * 6) / 2, infoY);

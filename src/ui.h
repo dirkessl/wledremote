@@ -28,7 +28,6 @@ enum class AppScreen {
 // Menu items for the main menu
 enum class MenuItem {
     COLORS = 0,
-    BRIGHTNESS,
     PRESETS,
     EFFECTS,
     HOMEKIT,

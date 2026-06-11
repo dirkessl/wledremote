@@ -65,7 +65,6 @@ static constexpr uint32_t SCREEN_ON_MS = 60000;
 static constexpr uint32_t SCREEN_DIM_MS = 60000;
 static constexpr uint32_t SCREEN_SAVER_MS = 60000;
 
-// Cat screensaver animation state
 // Ambient screensaver state
 struct AmbientBlob {
   float x, y;
@@ -368,6 +367,7 @@ void handleRunningState() {
   uint32_t now = millis();
   if (now - lastPoll >= getPollInterval()) {
     lastPoll = now;
+  
     if (wledClient.fetchState()) {
       // Sync HomeKit
       homeKitBridge.syncState(wledClient.getState());
@@ -404,14 +404,14 @@ void handleButtons() {
       int bri = wledClient.getState().brightness;
       bri = constrain(bri + encoderMove * 25, 0, 255);
       wledClient.setBrightness(bri);
-      wledClient.fetchState();
+      //wledClient.fetchState();
       ui.showMainStatus(wledClient.getState());
       return;
     }
 
     if (encoderBtnEvt == ButtonEvent::SHORT_PRESS) {
       wledClient.togglePower();
-      wledClient.fetchState();
+      //wledClient.fetchState();
       ui.showMainStatus(wledClient.getState());
       return;
     }
@@ -633,18 +633,19 @@ void drawAmbientSaver() {
 
 void updateScreensaver() {
   uint32_t elapsed = millis() - screenStateStart;
+  bool stripOn = wledClient.getState().on;
 
   switch (screenState) {
   case ScreenState::ON:
     if (elapsed >= SCREEN_ON_MS) {
       screenState = ScreenState::DIM;
       screenStateStart = millis();
-      tft.setBrightness(30);
+      tft.setBrightness(10);
     }
     break;
 
   case ScreenState::DIM:
-    if (elapsed >= SCREEN_DIM_MS) {
+    if (!stripOn && elapsed >= SCREEN_DIM_MS) {
       screenState = ScreenState::SAVER;
       screenStateStart = millis();
       tft.setBrightness(80);
@@ -653,6 +654,14 @@ void updateScreensaver() {
     break;
 
   case ScreenState::SAVER:
+    if (stripOn) {
+      screenState = ScreenState::DIM;
+      screenStateStart = millis();
+      tft.setBrightness(10);
+      saverInitialized = false;
+      break;
+    }
+
     if (!saverInitialized) {
       initAmbientSaver();
       saverInitialized = true;
@@ -661,16 +670,22 @@ void updateScreensaver() {
     if (elapsed >= SCREEN_SAVER_MS) {
       screenState = ScreenState::OFF;
       screenStateStart = millis();
-      tft.setBrightness(0);
+      tft.setBrightness(10);
       tft.fillScreen(TFT_BLACK);
     }
     break;
 
   case ScreenState::OFF:
-    // Display off, waiting for button press
+    if (stripOn) {
+      screenState = ScreenState::DIM;
+      screenStateStart = millis();
+      tft.setBrightness(0);
+      saverInitialized = false;
+    }
     break;
   }
 }
+
 
 void handleRecoveringState() {
   uint32_t now = millis();
