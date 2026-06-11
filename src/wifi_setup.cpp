@@ -99,10 +99,12 @@ bool WiFiSetup::reconnect(uint8_t maxAttempts) {
 
     Serial.printf("[WiFi] Starting non-blocking reconnect to: %s\n", ssid.c_str());
     WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(true);
     WiFi.persistent(false);
-    WiFi.disconnect(true);
+    WiFi.disconnect(false, false);
     delay(100);
     WiFi.begin(ssid.c_str(), pass.c_str());
+                                    
     _isReconnecting = true;
     _reconnectStart = millis();
 
@@ -112,6 +114,7 @@ bool WiFiSetup::reconnect(uint8_t maxAttempts) {
 // ---- Try connecting with saved creds (blocking, used at boot only) ----
 bool WiFiSetup::tryConnectSaved(const String& ssid, const String& pass) {
     WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(true);
     WiFi.persistent(false);
 
     for (int attempt = 1; attempt <= 2; attempt++) {
@@ -127,6 +130,7 @@ bool WiFiSetup::tryConnectSaved(const String& ssid, const String& pass) {
 
         if (WiFi.status() == WL_CONNECTED) {
             Serial.printf("[WiFi] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+            
             return true;
         }
 
