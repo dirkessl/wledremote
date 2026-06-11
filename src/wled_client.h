@@ -27,13 +27,14 @@ class WLEDClient {
 public:
     void setHost(const String& host, uint16_t port = 80);
 
-    // State queries (blocking)
+    // Data refresh requests (non-blocking, launches FreeRTOS worker task)
     bool fetchState();
     bool fetchEffects();
     bool fetchPresets();
+    bool requestStateRefresh();
     void loadCache();
 
-    // Asynchronous fetch of effects + presets via FreeRTOS task
+    // Asynchronous fetch of state/effects/presets via FreeRTOS task
     // Returns: true if launched, false if already in progress
     bool asyncFetchAll();
     FetchStatus getFetchStatus() const { return _fetchStatus.load(); }
@@ -58,6 +59,10 @@ public:
 
 private:
     bool sendState(const String& json);
+    bool startAsyncFetch(uint8_t flags, const String* postBody = nullptr);
+    bool parseStateResponse(const String& response, WLEDState& state);
+    bool parseEffectsResponse(const String& response, std::vector<String>& effects);
+    bool parsePresetsResponse(const String& response, std::vector<std::pair<int, String>>& presets, String* cacheJson = nullptr);
     String httpGet(const String& path);
     bool httpPost(const String& path, const String& body);
 
@@ -67,6 +72,8 @@ private:
     std::vector<String> _effects;
     std::vector<std::pair<int, String>> _presets;    // id, name
     std::atomic<FetchStatus> _fetchStatus{FetchStatus::IDLE};
+    uint8_t _fetchFlags = 0;
+    String _pendingPostBody;
     SemaphoreHandle_t _dataMutex = nullptr;
 };
 

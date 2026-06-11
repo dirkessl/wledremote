@@ -102,6 +102,12 @@ static uint8_t _wifiLostRetry = 0;
 static String _recoverMsg = "";
 static uint32_t _recoverTimer = 0;
 static bool _homeKitStarted = false;
+static int _pendingBrightness = -1;
+static uint32_t _lastBrightnessFlush = 0;
+static uint32_t _lastBrightnessUiRedraw = 0;
+static constexpr uint32_t BRIGHTNESS_FLUSH_MS = 75;
+static constexpr uint32_t BRIGHTNESS_UI_REDRAW_MS = 33;
+
 
 uint32_t getPollInterval() {
   if (appState != AppState::RUNNING)
@@ -176,8 +182,8 @@ void loop() {
       saverInitialized = false;
       // Redraw current screen
       if (appState == AppState::RUNNING) {
-        // Immediate poll on wake
-        wledClient.fetchState();
+        // Immediate async refresh on wake
+        wledClient.requestStateRefresh();
         lastPoll = millis();
         ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());
       }
@@ -283,10 +289,10 @@ void transitionTo(AppState newState) {
       uint16_t port = configStore.getWLEDPort();
       wledClient.setHost(host, port);
 
-      if (wledClient.fetchState()) {
+      if (wledClient.requestStateRefresh()) {
         transitionTo(AppState::LOADING);
       } else {
-        _recoverMsg = "WLED unreachable";
+        _recoverMsg = "WLED busy/unreachable";
         transitionTo(AppState::RECOVERING);
       }
     } else {
@@ -327,10 +333,6 @@ void transitionTo(AppState newState) {
 
   case AppState::LOADING: {
     Serial.println("[STATE] Loading");
-    if (wledClient.getFetchStatus() != FetchStatus::IN_PROGRESS) {
-      wledClient.clearFetchStatus();
-      wledClient.asyncFetchAll();
-    }
     ui.showLoading();
     break;
   }
@@ -363,21 +365,36 @@ void transitionTo(AppState newState) {
 
 
 void handleRunningState() {
-  // Poll WLED state periodically
   uint32_t now = millis();
+
+  if (_pendingBrightness >= 0) {
+    bool workerBusy = wledClient.getFetchStatus() == FetchStatus::IN_PROGRESS;
+    bool flushDue = (now - _lastBrightnessFlush) >= BRIGHTNESS_FLUSH_MS;
+    if (!workerBusy && flushDue) {
+      if (wledClient.setBrightness((uint8_t)_pendingBrightness)) {
+        _lastBrightnessFlush = now;
+      }
+      _pendingBrightness = -1;
+    }
+  }
+
+  // Poll WLED state periodically without blocking UI
   if (now - lastPoll >= getPollInterval()) {
     lastPoll = now;
-  
-    if (wledClient.fetchState()) {
-      // Sync HomeKit
-      homeKitBridge.syncState(wledClient.getState());
+    wledClient.requestStateRefresh();
+  }
 
-      // Update display if on main status screen
-      if (ui.getCurrentScreen() == AppScreen::MAIN_STATUS &&
-          screenState != ScreenState::OFF) {
-        ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());
-      }
+  FetchStatus fetchStatus = wledClient.getFetchStatus();
+  if (fetchStatus == FetchStatus::DONE) {
+    wledClient.clearFetchStatus();
+    homeKitBridge.syncState(wledClient.getState());
+
+    if (ui.getCurrentScreen() == AppScreen::MAIN_STATUS &&
+        screenState != ScreenState::OFF) {
+      ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());
     }
+  } else if (fetchStatus == FetchStatus::FAILED) {
+    wledClient.clearFetchStatus();
   }
 
   // Handle HomeKit
@@ -401,11 +418,18 @@ void handleButtons() {
 
   if (appState == AppState::RUNNING && screen == AppScreen::MAIN_STATUS) {
     if (encoderMove != 0) {
-      int bri = wledClient.getState().brightness;
-      bri = constrain(bri + encoderMove * 25, 0, 255);
-      wledClient.setBrightness(bri);
-      //wledClient.fetchState();
-      ui.showMainStatus(wledClient.getState());
+      WLEDState state = wledClient.getState();
+      int baseBri = (_pendingBrightness >= 0) ? _pendingBrightness : state.brightness;
+      int step = (screenState == ScreenState::ON) ? 8 : 16;
+      int bri = constrain(baseBri + encoderMove * step, 0, 255);
+      _pendingBrightness = bri;
+      state.brightness = bri;
+
+      uint32_t now = millis();
+      if ((now - _lastBrightnessUiRedraw) >= BRIGHTNESS_UI_REDRAW_MS || abs(encoderMove) > 1) {
+        _lastBrightnessUiRedraw = now;
+        ui.showMainStatus(state, wifiSetup.isConnected());
+      }
       return;
     }
 
@@ -478,9 +502,9 @@ void handleButtons() {
         configStore.setWLEDHost(device->ip);
         configStore.setWLEDPort(device->port);
         wledClient.setHost(device->ip, device->port);
-        wledClient.fetchState();
-        // Start async fetch of effects + presets, then go to loading screen
-        transitionTo(AppState::LOADING);
+        if (wledClient.asyncFetchAll()) {
+          transitionTo(AppState::LOADING);
+        }
       }
     }
     break;
@@ -703,11 +727,15 @@ void handleRecoveringState() {
         ui.showRecovering(_recoverMsg);
       }
     } else {
-      if (wledClient.fetchState()) {
-        transitionTo(AppState::RUNNING);
-      } else {
+      FetchStatus status = wledClient.getFetchStatus();
+      if (status == FetchStatus::IDLE || status == FetchStatus::FAILED) {
+        wledClient.clearFetchStatus();
+        wledClient.requestStateRefresh();
         _recoverMsg = "Retrying WLED...";
         ui.showRecovering(_recoverMsg);
+      } else if (status == FetchStatus::DONE) {
+        wledClient.clearFetchStatus();
+        transitionTo(AppState::RUNNING);
       }
     }
   }
