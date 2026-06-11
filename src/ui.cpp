@@ -350,13 +350,13 @@ void UI::showMainStatus(const WLEDState& state, bool isWifiConnected) {
     const int innerR = 35;
     const int glowR  = 58;
 
-    _sprite.fillSmoothCircle(cx, cy, glowR, bgColor, bgColor);
-    _sprite.fillSmoothCircle(cx, cy, outerR, panelEdge, bgColor);
-    _sprite.fillSmoothCircle(cx, cy, outerR - 4, liveColor, panelEdge);
-    _sprite.fillSmoothCircle(cx, cy, innerR, panelColor, liveColor);
+    _sprite.fillCircle(cx, cy, glowR, bgColor);
+    _sprite.fillSmoothCircle(cx, cy, outerR, panelEdge);
+    _sprite.fillSmoothCircle(cx, cy, outerR - 4, liveColor);
+    _sprite.fillSmoothCircle(cx, cy, innerR, panelColor);
 
     // Small top indicator dot inside circle
-    _sprite.fillSmoothCircle(cx, cy - 22, 4, state.on ? accentGreen : dimColor, panelColor);
+    _sprite.fillSmoothCircle(cx, cy - 22, 4, state.on ? accentGreen : dimColor);
 
     char pctStr[8];
     snprintf(pctStr, sizeof(pctStr), "%d%%", brightnessPct);
