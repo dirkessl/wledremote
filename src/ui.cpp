@@ -1,6 +1,9 @@
 #include "ui.h"
 #include <math.h>
-
+#include <lgfx/Fonts/GFXFF/FreeSans9pt7b.h>
+#include <lgfx/Fonts/GFXFF/FreeSansBold9pt7b.h>
+#include <lgfx/Fonts/GFXFF/TomThumb.h>
+#include <lgfx/Fonts/GFXFF/FreeSansBold12pt7b.h>
 UI ui;
 
 // MPS Logo 80x80 bitmap (1=draw pixel)
@@ -271,7 +274,6 @@ void UI::showIP(const String& ip) {
 }
 
 
-
 void UI::showWLEDScan() {
     _screen = AppScreen::WLED_SCAN;
     _sprite.fillScreen(COL_BG);
@@ -309,7 +311,7 @@ void UI::showWLEDSelect(const std::vector<WLEDDevice>& devices) {
 void UI::showMainStatus(const WLEDState& state, bool isWifiConnected) {
     _screen = AppScreen::MAIN_STATUS;
 
-    const uint32_t bgColor       = 0x141416U;
+    const uint32_t bgColor       = 0x000000U;
     const uint32_t panelColor    = 0x1E1F22U;
     const uint32_t panelEdge     = 0x2A2C31U;
     const uint32_t textColor     = 0xF5F5F7U;
@@ -333,57 +335,60 @@ void UI::showMainStatus(const WLEDState& state, bool isWifiConnected) {
 
     // Top status bar
     int statusY = 10;
+    _sprite.setFont(&TomThumb);
     _sprite.setTextSize(1);
     _sprite.setTextColor(isWifiConnected ? accentGreen : accentRed);
-    _sprite.setCursor(12, statusY);
+    _sprite.setCursor(12, statusY + 4);
     _sprite.print(isWifiConnected ? "WiFi" : "No WiFi");
 
     _sprite.setTextColor(state.reachable ? accentGreen : accentRed);
     const char* wledLabel = state.reachable ? "WLED" : "Offline";
-    _sprite.setCursor(SCREEN_W - 12 - (int)strlen(wledLabel) * 6, statusY);
+    _sprite.setCursor(SCREEN_W - 12 - _sprite.textWidth(wledLabel), statusY + 4);
     _sprite.print(wledLabel);
 
     // Upper circular focus area
     const int cx = SCREEN_W / 2;
-    const int cy = 94;
-    const int outerR = 48;
-    const int innerR = 35;
-    const int glowR  = 58;
+    const int cy = 106;
+    const int outerR = 72;
+    const int ringOuterR = 66;
+    const int ringInnerR = 48;
+    const int innerR = 43;
+    const int glowR  = 78;
 
     _sprite.fillCircle(cx, cy, glowR, bgColor);
     _sprite.fillSmoothCircle(cx, cy, outerR, panelEdge);
-    _sprite.fillSmoothCircle(cx, cy, outerR - 4, liveColor);
-    _sprite.fillSmoothCircle(cx, cy, innerR, panelColor);
+    _sprite.fillSmoothCircle(cx, cy, ringOuterR, 0x23252AU);
+
+    float pct = brightnessPct / 100.0f;
+    float startDeg = -90.0f;
+    float endDeg = startDeg + 360.0f * pct;
+    if (brightnessPct > 0) {
+        _sprite.fillArc(cx, cy, ringInnerR, ringOuterR, startDeg, endDeg, liveColor);
+    }
+
+    _sprite.fillSmoothCircle(cx, cy, innerR, 0x000000U);
 
     // Small top indicator dot inside circle
-    _sprite.fillSmoothCircle(cx, cy - 22, 4, state.on ? accentGreen : dimColor);
+    _sprite.fillSmoothCircle(cx, cy - 28, 4, state.on ? accentGreen : dimColor);
 
     char pctStr[8];
     snprintf(pctStr, sizeof(pctStr), "%d%%", brightnessPct);
-    int pctLen = strlen(pctStr);
+    _sprite.setFont(&FreeSansBold12pt7b);
     _sprite.setTextColor(textColor);
-    _sprite.setTextSize(3);
-    _sprite.setCursor(cx - pctLen * 9, cy - 14);
+    _sprite.setTextSize(1);
+    _sprite.setCursor(cx - (_sprite.textWidth(pctStr) / 2), cy - 2);
     _sprite.print(pctStr);
 
+    // Lower content area
+    int panelX = 14;
+    int panelY = 174;
+    int panelW = SCREEN_W - 28;
+
+    _sprite.setFont(&FreeSans9pt7b);
     _sprite.setTextSize(1);
     _sprite.setTextColor(labelColor);
-    const char* stateLabel = state.on ? "Brightness" : "Standby";
-    _sprite.setCursor(cx - (int)strlen(stateLabel) * 3, cy + 18);
-    _sprite.print(stateLabel);
-
-    // Lower content panel
-    int panelX = 12;
-    int panelY = 156;
-    int panelW = SCREEN_W - 24;
-    int panelH = 108;
-    _sprite.fillRoundRect(panelX, panelY, panelW, panelH, 18, panelColor);
-    _sprite.drawRoundRect(panelX, panelY, panelW, panelH, 18, panelEdge);
-
-    _sprite.setTextSize(1);
-    _sprite.setTextColor(labelColor);
-    _sprite.setCursor(panelX + 14, panelY + 14);
-    _sprite.print(state.preset >= 0 ? "Current preset" : "Current effect");
+    _sprite.setCursor(panelX, panelY);
+    _sprite.print(state.preset >= 0 ? "Preset" : "Effect");
 
     String statusStr = "Solid Color";
     if (state.preset >= 0) {
@@ -406,59 +411,78 @@ void UI::showMainStatus(const WLEDState& state, bool isWifiConnected) {
     if (statusStr.length() == 0) {
         statusStr = "Solid Color";
     }
-    if (statusStr.length() > 22) {
-        statusStr = statusStr.substring(0, 21) + "…";
-    }
 
+    _sprite.setFont(&FreeSansBold9pt7b);
     _sprite.setTextColor(textColor);
-    _sprite.setTextSize(2);
-    _sprite.setCursor(panelX + 14, panelY + 34);
-    _sprite.print(statusStr);
-
     _sprite.setTextSize(1);
-    _sprite.setTextColor(dimColor);
-    _sprite.setCursor(panelX + 14, panelY + 64);
-    if (!isWifiConnected || !state.reachable) {
-        _sprite.print("Waiting for connection");
-    } else if (state.preset >= 0) {
-        _sprite.print("Effect resumes with preset");
-    } else if (state.effect > 0) {
-        _sprite.print("Live effect active");
+    _sprite.setTextWrap(false);
+    int textY = panelY + 18;
+    int textWidth = _sprite.textWidth(statusStr);
+    int availableW = panelW;
+    if (textWidth <= availableW) {
+        _sprite.setCursor(panelX, textY);
+        _sprite.print(statusStr);
     } else {
-        _sprite.print("Manual color control");
+        static uint32_t marqueeStart = 0;
+        static String marqueeText = "";
+        if (marqueeText != statusStr) {
+            marqueeText = statusStr;
+            marqueeStart = millis();
+        }
+
+        const uint32_t pauseMs = 700;
+        const int stepDiv = 30;
+        uint32_t elapsed = millis() - marqueeStart;
+        int maxOffset = textWidth - availableW + 16;
+        if (maxOffset < 1) maxOffset = 1;
+
+        int offset = 0;
+        if (elapsed > pauseMs) {
+            offset = (elapsed - pauseMs) / stepDiv;
+            if (offset > maxOffset) {
+                marqueeStart = millis();
+                offset = 0;
+            }
+        }
+
+        _sprite.fillRect(panelX, textY - 2, availableW, 22, bgColor);
+        _sprite.setClipRect(panelX, textY - 2, availableW, 22);
+        _sprite.setCursor(panelX - offset, textY);
+        _sprite.drawString(statusStr, panelX - offset, textY);
+        _sprite.clearClipRect();
     }
+    _sprite.setTextWrap(true);
 
     // Color swatch chip
-    int chipX = panelX + 14;
-    int chipY = panelY + 82;
-    int chipW = panelW - 28;
-    int chipH = 14;
-    _sprite.fillRoundRect(chipX, chipY, chipW, chipH, 7, 0x26282DU);
-    _sprite.fillRoundRect(chipX + 2, chipY + 2, chipW - 4, chipH - 4, 6, liveColor);
+    int chipX = panelX;
+    int chipY = panelY + 50;
+    int chipW = panelW;
+    int chipH = 10;
+    _sprite.fillRoundRect(chipX, chipY, chipW, chipH, 5, 0x26282DU);
+    _sprite.fillRoundRect(chipX + 2, chipY + 2, chipW - 4, chipH - 4, 4, liveColor);
 
     // Bottom two-button drawer
-    int footerY = SCREEN_H - 44;
-    int footerX = 10;
-    int footerW = SCREEN_W - 20;
-    int footerH = 30;
-    _sprite.fillRoundRect(footerX, footerY, footerW, footerH, 15, footerColor);
-
+    int footerY = SCREEN_H - 28;
+    int footerX = 16;
+    int footerW = SCREEN_W - 32;
     int gap = 8;
-    int btnW = (footerW - gap - 8) / 2;
-    int btnH = 22;
-    int btnY = footerY + 4;
-    int leftX = footerX + 4;
+    int btnW = (footerW - gap) / 2;
+    int leftX = footerX;
     int rightX = leftX + btnW + gap;
 
-    _sprite.fillRoundRect(leftX, btnY, btnW, btnH, 11, footerButton);
-    _sprite.fillRoundRect(rightX, btnY, btnW, btnH, 11, footerButton);
-
+    _sprite.setFont(&FreeSans9pt7b);
     _sprite.setTextSize(1);
+    const char* leftLabel = "Menu";
+    const char* rightLabel = "Presets";
+    int labelY = footerY + 2;
+
+    _sprite.setTextColor(labelColor);
+    _sprite.setCursor(leftX + (btnW - _sprite.textWidth(leftLabel)) / 2, labelY);
+    _sprite.print(leftLabel);
+
     _sprite.setTextColor(textColor);
-    _sprite.setCursor(leftX + btnW / 2 - 12, btnY + 7);
-    _sprite.print("Menu");
-    _sprite.setCursor(rightX + btnW / 2 - 21, btnY + 7);
-    _sprite.print("Presets");
+    _sprite.setCursor(rightX + (btnW - _sprite.textWidth(rightLabel)) / 2, labelY);
+    _sprite.print(rightLabel);
 
     update();
 }

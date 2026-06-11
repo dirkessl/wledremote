@@ -183,7 +183,9 @@ void loop() {
       // Redraw current screen
       if (appState == AppState::RUNNING) {
         // Immediate async refresh on wake
-        wledClient.requestStateRefresh();
+        if (wledClient.getFetchStatus() != FetchStatus::IN_PROGRESS) {
+          wledClient.requestStateRefresh();
+        }
         lastPoll = millis();
         ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());
       }
@@ -381,7 +383,9 @@ void handleRunningState() {
   // Poll WLED state periodically without blocking UI
   if (now - lastPoll >= getPollInterval()) {
     lastPoll = now;
-    wledClient.requestStateRefresh();
+    if (wledClient.getFetchStatus() != FetchStatus::IN_PROGRESS) {
+      wledClient.requestStateRefresh();
+    }
   }
 
   FetchStatus fetchStatus = wledClient.getFetchStatus();
@@ -559,9 +563,9 @@ void handleButtons() {
     if (encoderBtnEvt == ButtonEvent::SHORT_PRESS) {
       int idx = ui.getSelectedIndex();
       if (idx >= 0 && idx < 12) {
-        wledClient.setColor(presetColors[idx].r, presetColors[idx].g,
+        uint8_t bri = (_pendingBrightness >= 0) ? (uint8_t)_pendingBrightness : wledClient.getState().brightness;
+        wledClient.setState(true, bri, presetColors[idx].r, presetColors[idx].g,
                             presetColors[idx].b);
-        wledClient.fetchState();
         ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());
       }
     }
@@ -581,8 +585,6 @@ void handleButtons() {
       const auto &presets = wledClient.getPresets();
       if (idx >= 0 && idx < (int)presets.size()) {
         wledClient.setPreset(presets[idx].first);
-        delay(200);
-        wledClient.fetchState();
         ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());
       }
     }
@@ -600,8 +602,6 @@ void handleButtons() {
       int idx = ui.getSelectedIndex();
       if (idx >= 0 && idx < (int)wledClient.getEffects().size()) {
         wledClient.setEffect(idx);
-        delay(200);
-        wledClient.fetchState();
         ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());
       }
     }

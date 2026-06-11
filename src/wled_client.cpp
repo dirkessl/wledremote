@@ -218,8 +218,7 @@ void asyncFetchTask(void* arg) {
         }
     }
 
-    Serial.println("[WLED] Async worker complete");
-    client->_fetchStatus.store(anySuccess ? FetchStatus::DONE : FetchStatus::FAILED);
+        client->_fetchStatus.store(anySuccess ? FetchStatus::DONE : FetchStatus::FAILED);
     vTaskDelete(nullptr);
 }
 
@@ -268,6 +267,11 @@ bool WLEDClient::asyncFetchAll() {
 }
 
 bool WLEDClient::requestStateRefresh() {
+    static uint32_t lastRequestMs = 0;
+    uint32_t now = millis();
+    if (_fetchStatus.load() == FetchStatus::IN_PROGRESS) return false;
+    if (now - lastRequestMs < 250) return false;
+    lastRequestMs = now;
     return startAsyncFetch(FETCH_STATE);
 }
 
@@ -347,8 +351,14 @@ bool WLEDClient::setBrightness(uint8_t bri) {
 }
 
 bool WLEDClient::setColor(uint8_t r, uint8_t g, uint8_t b) {
+    return setState(_state.on, _state.brightness, r, g, b);
+}
+
+bool WLEDClient::setState(bool on, uint8_t bri, uint8_t r, uint8_t g, uint8_t b) {
     String body;
     JsonDocument doc;
+    doc["on"] = on;
+    doc["bri"] = bri;
     JsonArray seg = doc["seg"].to<JsonArray>();
     JsonObject s0 = seg.add<JsonObject>();
     JsonArray col = s0["col"].to<JsonArray>();
@@ -359,6 +369,8 @@ bool WLEDClient::setColor(uint8_t r, uint8_t g, uint8_t b) {
     serializeJson(doc, body);
     bool ok = sendState(body);
     if (ok) {
+        _state.on = on;
+        _state.brightness = bri;
         _state.r = r;
         _state.g = g;
         _state.b = b;

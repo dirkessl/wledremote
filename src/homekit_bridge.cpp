@@ -1,5 +1,38 @@
 
 #include "homekit_bridge.h"
+#include <math.h>
+
+namespace {
+void rgbToHsv(uint8_t r, uint8_t g, uint8_t b, float& h, float& s, float& v) {
+    float rf = r / 255.0f, gf = g / 255.0f, bf = b / 255.0f;
+    float maxv = fmaxf(rf, fmaxf(gf, bf));
+    float minv = fminf(rf, fminf(gf, bf));
+    float d = maxv - minv;
+    v = maxv;
+    s = maxv <= 0.0f ? 0.0f : d / maxv;
+    if (d <= 0.00001f) { h = 0.0f; return; }
+    if (maxv == rf) h = 60.0f * fmodf(((gf - bf) / d), 6.0f);
+    else if (maxv == gf) h = 60.0f * (((bf - rf) / d) + 2.0f);
+    else h = 60.0f * (((rf - gf) / d) + 4.0f);
+    if (h < 0.0f) h += 360.0f;
+}
+
+void hsvToRgb(float h, float s, float v, uint8_t& r, uint8_t& g, uint8_t& b) {
+    float c = v * s;
+    float x = c * (1.0f - fabsf(fmodf(h / 60.0f, 2.0f) - 1.0f));
+    float m = v - c;
+    float rf = 0, gf = 0, bf = 0;
+    if (h < 60.0f) { rf = c; gf = x; }
+    else if (h < 120.0f) { rf = x; gf = c; }
+    else if (h < 180.0f) { gf = c; bf = x; }
+    else if (h < 240.0f) { gf = x; bf = c; }
+    else if (h < 300.0f) { rf = x; bf = c; }
+    else { rf = c; bf = x; }
+    r = (uint8_t)roundf((rf + m) * 255.0f);
+    g = (uint8_t)roundf((gf + m) * 255.0f);
+    b = (uint8_t)roundf((bf + m) * 255.0f);
+}
+}
 
 HomeKitBridge homeKitBridge;
 
@@ -9,18 +42,27 @@ WLEDLight::WLEDLight() : Service::LightBulb() {
     power = new Characteristic::On(0);
     brightness = new Characteristic::Brightness(100);
     brightness->setRange(0, 100, 1);
+    hue = new Characteristic::Hue(0);
+    hue->setRange(0, 360, 1);
+    saturation = new Characteristic::Saturation(0);
+    saturation->setRange(0, 100, 1);
 }
 
 boolean WLEDLight::update() {
     bool on = power->getNewVal();
     int bri = brightness->getNewVal();
+    float h = hue->getNewVal();
+    float s = saturation->getNewVal();
 
-    // Set power state
     wledClient.setPower(on);
 
     if (on) {
-        // Set brightness (map 0-100 to 0-255)
-        wledClient.setBrightness((uint8_t)(bri * 255 / 100));
+        uint8_t bri255 = (uint8_t)(bri * 255 / 100);
+        wledClient.setBrightness(bri255);
+
+        uint8_t r, g, b;
+        hsvToRgb(h, s / 100.0f, bri / 100.0f, r, g, b);
+        wledClient.setColor(r, g, b);
     }
 
     return true;
@@ -29,6 +71,11 @@ boolean WLEDLight::update() {
 void WLEDLight::syncFromWLED(const WLEDState& state) {
     power->setVal(state.on ? 1 : 0);
     brightness->setVal((state.brightness * 100) / 255);
+
+    float h, s, v;
+    rgbToHsv(state.r, state.g, state.b, h, s, v);
+    hue->setVal(h);
+    saturation->setVal(s * 100.0f);
 }
 
 // ---- HomeKitBridge ----

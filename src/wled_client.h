@@ -45,6 +45,7 @@ public:
     bool setPower(bool on);
     bool setBrightness(uint8_t bri);
     bool setColor(uint8_t r, uint8_t g, uint8_t b);
+    bool setState(bool on, uint8_t bri, uint8_t r, uint8_t g, uint8_t b);
     bool setPreset(int presetId);
     bool setEffect(int effectId);
 

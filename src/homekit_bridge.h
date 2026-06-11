@@ -7,6 +7,8 @@
 struct WLEDLight : Service::LightBulb {
     SpanCharacteristic* power;
     SpanCharacteristic* brightness;
+    SpanCharacteristic* hue;
+    SpanCharacteristic* saturation;
 
     WLEDLight();
     boolean update() override;
