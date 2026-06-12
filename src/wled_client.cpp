@@ -405,7 +405,12 @@ bool WLEDClient::setBrightness(uint8_t bri) {
     JsonDocument doc;
     doc["bri"] = bri;
     serializeJson(doc, body);
-    return sendState(body);
+
+    xSemaphoreTake(_dataMutex, portMAX_DELAY);
+    _state.brightness = bri;
+    xSemaphoreGive(_dataMutex);
+
+    return enqueueRequest(RequestKind::SEND_STATE, &body, false, true);
 }
 
 bool WLEDClient::setColor(uint8_t r, uint8_t g, uint8_t b) {
