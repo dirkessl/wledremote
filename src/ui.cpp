@@ -4,6 +4,7 @@
 #include <lgfx/Fonts/GFXFF/FreeSansBold9pt7b.h>
 #include <lgfx/Fonts/GFXFF/TomThumb.h>
 #include <lgfx/Fonts/GFXFF/FreeSansBold12pt7b.h>
+
 UI ui;
 
 // MPS Logo 80x80 bitmap (1=draw pixel)
@@ -265,7 +266,7 @@ void UI::showIP(const String& ip) {
     _sprite.setTextColor(COL_DIM);
     _sprite.setTextSize(1);
     _sprite.setCursor(10, SCREEN_H - FOOTER_H + 8);
-    drawFooter(" ", "Back");
+    drawBottomDrawer(" ", "Back");
 
     update();  // push sprite first
 
@@ -304,7 +305,8 @@ void UI::showWLEDSelect(const std::vector<WLEDDevice>& devices) {
         y += ITEM_H;
     }
 
-    drawFooter("Scroll", "Select");
+    drawBottomDrawer("Scroll", "Select", COL_DIM, COL_TEXT, COL_TEXT, COL_DIM, 0x18191CU, 0x25272BU);
+
     update();
 }
 
@@ -336,14 +338,15 @@ void UI::showMainStatus(const WLEDState& state, bool isWifiConnected) {
     // Top status bar
     int statusY = 10;
     _sprite.setFont(&TomThumb);
-    _sprite.setTextSize(1);
+    _sprite.setTextSize(2);
     _sprite.setTextColor(isWifiConnected ? accentGreen : accentRed);
-    _sprite.setCursor(12, statusY + 4);
-    _sprite.print(isWifiConnected ? "WiFi" : "No WiFi");
+    const char* wifiLabel = isWifiConnected ? "WiFi" : "No WiFi";
+    _sprite.setCursor(14, statusY + 5);
+    _sprite.print(wifiLabel);
 
     _sprite.setTextColor(state.reachable ? accentGreen : accentRed);
     const char* wledLabel = state.reachable ? "WLED" : "Offline";
-    _sprite.setCursor(SCREEN_W - 12 - _sprite.textWidth(wledLabel), statusY + 4);
+    _sprite.setCursor(SCREEN_W - 14 - _sprite.textWidth(wledLabel), statusY + 5);
     _sprite.print(wledLabel);
 
     // Upper circular focus area
@@ -461,28 +464,7 @@ void UI::showMainStatus(const WLEDState& state, bool isWifiConnected) {
     _sprite.fillRoundRect(chipX, chipY, chipW, chipH, 5, 0x26282DU);
     _sprite.fillRoundRect(chipX + 2, chipY + 2, chipW - 4, chipH - 4, 4, liveColor);
 
-    // Bottom two-button drawer
-    int footerY = SCREEN_H - 28;
-    int footerX = 16;
-    int footerW = SCREEN_W - 32;
-    int gap = 8;
-    int btnW = (footerW - gap) / 2;
-    int leftX = footerX;
-    int rightX = leftX + btnW + gap;
-
-    _sprite.setFont(&FreeSans9pt7b);
-    _sprite.setTextSize(1);
-    const char* leftLabel = "Menu";
-    const char* rightLabel = "Presets";
-    int labelY = footerY + 2;
-
-    _sprite.setTextColor(labelColor);
-    _sprite.setCursor(leftX + (btnW - _sprite.textWidth(leftLabel)) / 2, labelY);
-    _sprite.print(leftLabel);
-
-    _sprite.setTextColor(textColor);
-    _sprite.setCursor(rightX + (btnW - _sprite.textWidth(rightLabel)) / 2, labelY);
-    _sprite.print(rightLabel);
+    drawBottomDrawer("Menu", "Presets", labelColor, textColor, textColor, labelColor, footerColor, footerButton);
 
     update();
 }
@@ -500,7 +482,8 @@ void UI::showMenu() {
         y += ITEM_H;
     }
 
-    drawFooter("Scroll", "Back");
+    drawBottomDrawer("Scroll", "Home");
+
     update();
 }
 
@@ -547,7 +530,7 @@ void UI::showColorPicker() {
         _sprite.print(colors[i].name);
     }
 
-    drawFooter("Scroll", "Apply");
+    drawBottomDrawer("Scroll", "Apply");
     update();
 }
 
@@ -574,7 +557,7 @@ void UI::showPresets(const std::vector<std::pair<int, String>>& presets) {
         }
     }
 
-    drawFooter("Scroll", "Back");
+    drawBottomDrawer("Scroll", "Back");
     update();
 }
 
@@ -593,7 +576,7 @@ void UI::showEffects(const std::vector<String>& effects) {
         y += ITEM_H;
     }
 
-    drawFooter("Scroll", "Back");
+    drawBottomDrawer("Scroll", "Back");
     update();
 }
 
@@ -643,7 +626,7 @@ void UI::showError(const String& message) {
     _sprite.setTextSize(1);
     _sprite.setCursor(10, CONTENT_Y + 50);
     _sprite.println(message);
-    drawFooter("", "OK");
+    drawBottomDrawer("", "OK");
     update();
 }
 
@@ -695,7 +678,7 @@ void UI::showLoading() {
     _sprite.setTextSize(2);
     int tw = 18 * 12;
     _sprite.setCursor((SCREEN_W - tw) / 2, CONTENT_Y + 50);
-    _sprite.print("Loading presets");
+    _sprite.print("Loading...");
 
       // Subtitle
     _sprite.setTextColor(COL_DIM);
@@ -815,20 +798,26 @@ void UI::drawHeader(const String& title) {
     _sprite.print(title);
 }
 
-void UI::drawFooter(const String& leftLabel, const String& rightLabel) {
-    int y = SCREEN_H - FOOTER_H;
-    _sprite.drawFastHLine(0, y, SCREEN_W, COL_DIM);
-    _sprite.setTextColor(COL_DIM);
+void UI::drawBottomDrawer(const String& leftLabel, const String& rightLabel, uint32_t leftColor, uint32_t rightColor, uint32_t textColor, uint32_t dimColor, uint32_t drawerColor, uint32_t buttonColor) {
+    int footerY = SCREEN_H - 28;
+    int footerX = 14;
+    int footerW = SCREEN_W - 28;
+    int gap = 8;
+    int btnW = (footerW - gap) / 2;
+    int leftX = footerX;
+    int rightX = leftX + btnW + gap;
+
+    _sprite.setFont(&FreeSans9pt7b);
     _sprite.setTextSize(1);
-    if (leftLabel.length() > 0) {
-        _sprite.setCursor(8, y + 8);
-        _sprite.print("[" + leftLabel + "]");
-    }
-    if (rightLabel.length() > 0) {
-        int tw = rightLabel.length() * 6 + 12;
-        _sprite.setCursor(SCREEN_W - tw, y + 8);
-        _sprite.print("[" + rightLabel + "]");
-    }
+    int labelY = footerY + 14;
+
+    _sprite.setTextColor(leftColor ? leftColor : dimColor);
+    _sprite.setCursor(leftX + (btnW - _sprite.textWidth(leftLabel)) / 2, labelY);
+    _sprite.print(leftLabel);
+
+    _sprite.setTextColor(rightColor ? rightColor : textColor);
+    _sprite.setCursor(rightX + (btnW - _sprite.textWidth(rightLabel)) / 2, labelY);
+    _sprite.print(rightLabel);
 }
 
 void UI::drawMenuItem(int y, const String& text, bool selected) {

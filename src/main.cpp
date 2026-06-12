@@ -383,8 +383,13 @@ void handleButtons() {
       _brightnessModeActive = false;
       _previewBrightness = -1;
       _brightnessDirty = false;
-      wledClient.togglePower();
-      ui.showMainStatus(wledClient.getState());
+
+      bool targetOn = !wledClient.getState().on;
+      if (wledClient.setPower(targetOn)) {
+        WLEDState state = wledClient.getState();
+        state.on = targetOn;
+        ui.showMainStatus(state, wifiSetup.isConnected());
+      }
       return;
     }
 

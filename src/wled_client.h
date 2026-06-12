@@ -64,7 +64,8 @@ private:
         FETCH_EFFECTS,
         FETCH_PRESETS,
         FETCH_ALL,
-        SEND_STATE
+        SEND_STATE,
+        SEND_POWER
     };
 
     struct Request {
@@ -73,7 +74,7 @@ private:
     };
 
     bool ensureWorker();
-    bool enqueueRequest(RequestKind kind, const String* body = nullptr, bool dedupe = false, bool replaceStateCommand = false);
+    bool enqueueRequest(RequestKind kind, const String* body = nullptr, bool dedupe = false, bool replaceStateCommand = false, bool prioritize = false);
     bool sendState(const String& json);
     bool parseStateResponse(const String& response, WLEDState& state);
     bool parseEffectsResponse(const String& response, std::vector<String>& effects);
@@ -100,6 +101,8 @@ private:
     bool _queuedEffectsRefresh = false;
     bool _queuedPresetsRefresh = false;
     bool _queuedFetchAll = false;
+    bool _powerVerifyPending = false;
+    bool _powerVerifyTargetOn = false;
 };
 
 extern WLEDClient wledClient;

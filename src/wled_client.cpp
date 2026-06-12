@@ -74,7 +74,7 @@ bool WLEDClient::ensureWorker() {
     return true;
 }
 
-bool WLEDClient::enqueueRequest(RequestKind kind, const String* body, bool dedupe, bool replaceStateCommand) {
+bool WLEDClient::enqueueRequest(RequestKind kind, const String* body, bool dedupe, bool replaceStateCommand, bool prioritize) {
     if (!ensureWorker()) {
         _fetchStatus.store(FetchStatus::FAILED);
         return false;
@@ -105,44 +105,70 @@ bool WLEDClient::enqueueRequest(RequestKind kind, const String* body, bool dedup
         return false;
     }
 
-    if (replaceStateCommand) {
+    Request temp[REQUEST_QUEUE_LENGTH];
+    UBaseType_t kept = 0;
+    bool rebuildQueue = replaceStateCommand || prioritize;
+
+    if (rebuildQueue) {
         UBaseType_t waiting = uxQueueMessagesWaiting(_requestQueue);
-        if (waiting > 0) {
-            Request temp[REQUEST_QUEUE_LENGTH];
-            UBaseType_t kept = 0;
-            for (UBaseType_t i = 0; i < waiting; ++i) {
-                Request cur{};
-                if (xQueueReceive(_requestQueue, &cur, 0) == pdTRUE) {
-                    if (cur.kind == RequestKind::SEND_STATE) continue;
-                    temp[kept++] = cur;
-                }
+        for (UBaseType_t i = 0; i < waiting; ++i) {
+            Request cur{};
+            if (xQueueReceive(_requestQueue, &cur, 0) == pdTRUE) {
+                if (replaceStateCommand && cur.kind == RequestKind::SEND_STATE) continue;
+                if (prioritize && cur.kind == RequestKind::SEND_POWER) continue;
+                temp[kept++] = cur;
             }
-            xQueueReset(_requestQueue);
-            _queuedStateRefresh = false;
-            _queuedEffectsRefresh = false;
-            _queuedPresetsRefresh = false;
-            _queuedFetchAll = false;
-            for (UBaseType_t i = 0; i < kept; ++i) {
-                xQueueSend(_requestQueue, &temp[i], 0);
-                switch (temp[i].kind) {
-                    case RequestKind::FETCH_STATE: _queuedStateRefresh = true; break;
-                    case RequestKind::FETCH_EFFECTS: _queuedEffectsRefresh = true; break;
-                    case RequestKind::FETCH_PRESETS: _queuedPresetsRefresh = true; break;
-                    case RequestKind::FETCH_ALL: _queuedFetchAll = true; break;
-                    default: break;
-                }
+        }
+        xQueueReset(_requestQueue);
+        _queuedStateRefresh = false;
+        _queuedEffectsRefresh = false;
+        _queuedPresetsRefresh = false;
+        _queuedFetchAll = false;
+    }
+
+    bool queueOk = true;
+    if (prioritize) {
+        if (xQueueSend(_requestQueue, &req, 0) != pdTRUE) {
+            queueOk = false;
+        }
+        for (UBaseType_t i = 0; queueOk && i < kept; ++i) {
+            if (xQueueSend(_requestQueue, &temp[i], 0) != pdTRUE) {
+                queueOk = false;
             }
+            switch (temp[i].kind) {
+                case RequestKind::FETCH_STATE: _queuedStateRefresh = true; break;
+                case RequestKind::FETCH_EFFECTS: _queuedEffectsRefresh = true; break;
+                case RequestKind::FETCH_PRESETS: _queuedPresetsRefresh = true; break;
+                case RequestKind::FETCH_ALL: _queuedFetchAll = true; break;
+                default: break;
+            }
+        }
+    } else {
+        for (UBaseType_t i = 0; queueOk && i < kept; ++i) {
+            if (xQueueSend(_requestQueue, &temp[i], 0) != pdTRUE) {
+                queueOk = false;
+            }
+            switch (temp[i].kind) {
+                case RequestKind::FETCH_STATE: _queuedStateRefresh = true; break;
+                case RequestKind::FETCH_EFFECTS: _queuedEffectsRefresh = true; break;
+                case RequestKind::FETCH_PRESETS: _queuedPresetsRefresh = true; break;
+                case RequestKind::FETCH_ALL: _queuedFetchAll = true; break;
+                default: break;
+            }
+        }
+        if (queueOk && xQueueSend(_requestQueue, &req, 0) != pdTRUE) {
+            queueOk = false;
         }
     }
 
-    if (xQueueSend(_requestQueue, &req, 0) != pdTRUE) {
+    if (!queueOk) {
         xSemaphoreGive(_queueMutex);
         _fetchStatus.store(FetchStatus::FAILED);
         return false;
     }
 
     if (dedupeFlag) *dedupeFlag = true;
-    if (kind == RequestKind::SEND_STATE) _lastCommandMs = millis();
+    if (kind == RequestKind::SEND_STATE || kind == RequestKind::SEND_POWER) _lastCommandMs = millis();
     xSemaphoreGive(_queueMutex);
     return true;
 }
@@ -279,10 +305,40 @@ void WLEDClient::processRequest(const Request& req) {
         return;
     }
 
-    if (req.kind == RequestKind::SEND_STATE) {
+    if (req.kind == RequestKind::SEND_STATE || req.kind == RequestKind::SEND_POWER) {
         success = httpPost("/json/state", String(req.body));
         if (success) {
             markReachable(true);
+
+            if (req.kind == RequestKind::SEND_POWER) {
+                String response;
+                bool verified = false;
+                if (httpGetInto("/json/state", 3000, response)) {
+                    WLEDState nextState;
+                    if (parseStateResponse(response, nextState)) {
+                        xSemaphoreTake(_dataMutex, portMAX_DELAY);
+                        _state = nextState;
+                        xSemaphoreGive(_dataMutex);
+                        verified = (nextState.on == _powerVerifyTargetOn);
+                    }
+                }
+
+                if (!verified && _powerVerifyPending) {
+                    success = httpPost("/json/state", String(req.body));
+                    if (success && httpGetInto("/json/state", 3000, response)) {
+                        WLEDState nextState;
+                        if (parseStateResponse(response, nextState)) {
+                            xSemaphoreTake(_dataMutex, portMAX_DELAY);
+                            _state = nextState;
+                            xSemaphoreGive(_dataMutex);
+                            verified = (nextState.on == _powerVerifyTargetOn);
+                        }
+                    }
+                }
+
+                _powerVerifyPending = false;
+                success = verified;
+            }
         }
     } else if (req.kind == RequestKind::FETCH_STATE) {
         String response;
@@ -397,7 +453,15 @@ bool WLEDClient::setPower(bool on) {
     JsonDocument doc;
     doc["on"] = on;
     serializeJson(doc, body);
-    return sendState(body);
+
+    xSemaphoreTake(_dataMutex, portMAX_DELAY);
+    _state.on = on;
+    xSemaphoreGive(_dataMutex);
+
+    _powerVerifyPending = true;
+    _powerVerifyTargetOn = on;
+
+    return enqueueRequest(RequestKind::SEND_POWER, &body, false, false, true);
 }
 
 bool WLEDClient::setBrightness(uint8_t bri) {

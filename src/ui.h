@@ -76,7 +76,7 @@ public:
 
 private:
     void drawHeader(const String& title);
-    void drawFooter(const String& leftLabel, const String& rightLabel);
+    void drawBottomDrawer(const String& leftLabel, const String& rightLabel, uint32_t leftColor = 0x9A9CA3U, uint32_t rightColor = 0xF5F5F7U, uint32_t textColor = 0xF5F5F7U, uint32_t dimColor = 0x9A9CA3U, uint32_t drawerColor = 0x18191CU, uint32_t buttonColor = 0x25272BU);
     void drawMenuItem(int y, const String& text, bool selected);
     void drawProgressBar(int x, int y, int w, int h, uint8_t value, uint32_t color);
     void drawColorSwatch(int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b);
