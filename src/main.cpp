@@ -328,11 +328,16 @@ void handleRunningState() {
 
   FetchStatus fetchStatus = wledClient.getFetchStatus();
   if (fetchStatus == FetchStatus::DONE) {
+    WLEDState confirmedState = wledClient.getState();
     wledClient.clearFetchStatus();
-    homeKitBridge.syncState(wledClient.getState());
+    homeKitBridge.syncState(confirmedState);
 
-    if (ui.getCurrentScreen() == AppScreen::MAIN_STATUS) {
-      ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());
+    if (_pendingBrightness >= 0 && ui.getCurrentScreen() == AppScreen::MAIN_STATUS) {
+      WLEDState previewState = confirmedState;
+      previewState.brightness = (uint8_t)_pendingBrightness;
+      ui.showMainStatus(previewState, wifiSetup.isConnected());
+    } else if (ui.getCurrentScreen() == AppScreen::MAIN_STATUS) {
+      ui.showMainStatus(confirmedState, wifiSetup.isConnected());
     }
   } else if (fetchStatus == FetchStatus::FAILED) {
     wledClient.clearFetchStatus();
