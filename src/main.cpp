@@ -367,7 +367,7 @@ void handleButtons() {
     if (encoderMove != 0) {
       WLEDState state = wledClient.getState();
       int baseBri = (_brightnessModeActive && _previewBrightness >= 0) ? _previewBrightness : state.brightness;
-      int step = 8;
+      int step = 13;
       int bri = constrain(baseBri + encoderMove * step, 0, 255);
       _brightnessModeActive = true;
       _previewBrightness = bri;
