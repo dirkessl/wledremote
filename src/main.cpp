@@ -85,7 +85,7 @@ static constexpr uint32_t BRIGHTNESS_UI_REDRAW_MS = 33;
 uint32_t getPollInterval() {
   if (appState != AppState::RUNNING)
     return 5000;
-  return 1000;
+  return 3000;
 }
 
 void setup() {
@@ -549,5 +549,26 @@ void handleButtons() {
   default:
     break;
   }
+}
+
+void handleRecoveringState() {
+  if (_recoverMsg.length() > 0) {
+    ui.showRecovering(_recoverMsg);
+  }
+}
+
+void handleLoadingState() {
+  FetchStatus status = wledClient.getFetchStatus();
+  if (status == FetchStatus::DONE) {
+    wledClient.clearFetchStatus();
+    transitionTo(AppState::RUNNING);
+    return;
+  }
+  if (status == FetchStatus::FAILED) {
+    wledClient.clearFetchStatus();
+    transitionTo(AppState::RUNNING);
+    return;
+  }
+  ui.showLoading();
 }
 

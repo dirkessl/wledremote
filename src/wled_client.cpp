@@ -1,34 +1,28 @@
 #include "wled_client.h"
+
 #include <HTTPClient.h>
 #include <WiFi.h>
+
 #include "config_store.h"
 
 namespace {
-enum AsyncFetchFlags : uint8_t {
-    FETCH_NONE    = 0,
-    FETCH_STATE   = 1 << 0,
-    FETCH_EFFECTS = 1 << 1,
-    FETCH_PRESETS = 1 << 2,
-    FETCH_POST    = 1 << 3,
-    FETCH_ALL     = FETCH_STATE | FETCH_EFFECTS | FETCH_PRESETS,
-};
-
-bool httpGetInto(HTTPClient& http, const String& url, uint32_t timeoutMs, String& response) {
-    http.begin(url);
-    http.setTimeout(timeoutMs);
-    int code = http.GET();
-    if (code != HTTP_CODE_OK) {
-        Serial.printf("[WLED] GET %s failed: %d\n", url.c_str(), code);
-        http.end();
-        return false;
-    }
-    response = http.getString();
-    http.end();
-    return true;
-}
+constexpr uint32_t STATE_REFRESH_MIN_MS = 2500;
+constexpr uint32_t POST_REFRESH_GUARD_MS = 800;
+constexpr UBaseType_t REQUEST_QUEUE_LENGTH = 8;
 }
 
 WLEDClient wledClient;
+
+void WLEDClient::workerTaskEntry(void* arg) {
+    WLEDClient* client = static_cast<WLEDClient*>(arg);
+    Request req{};
+    while (true) {
+        if (xQueueReceive(client->_requestQueue, &req, portMAX_DELAY) == pdTRUE) {
+            client->_fetchStatus.store(FetchStatus::IN_PROGRESS);
+            client->processRequest(req);
+        }
+    }
+}
 
 void WLEDClient::loadCache() {
     String effJson = configStore.getCachedEffects();
@@ -57,6 +51,102 @@ void WLEDClient::loadCache() {
 void WLEDClient::setHost(const String& host, uint16_t port) {
     _host = host;
     _port = port;
+}
+
+bool WLEDClient::ensureWorker() {
+    if (!_dataMutex) {
+        _dataMutex = xSemaphoreCreateRecursiveMutex();
+        if (!_dataMutex) return false;
+    }
+    if (!_queueMutex) {
+        _queueMutex = xSemaphoreCreateMutex();
+        if (!_queueMutex) return false;
+    }
+    if (!_requestQueue) {
+        _requestQueue = xQueueCreate(REQUEST_QUEUE_LENGTH, sizeof(Request));
+        if (!_requestQueue) return false;
+    }
+    if (!_workerTask) {
+        BaseType_t ok = xTaskCreate(workerTaskEntry, "wled_worker", 8192, this, 1, &_workerTask);
+        if (ok != pdPASS) {
+            _workerTask = nullptr;
+            return false;
+        }
+    }
+    return true;
+}
+
+bool WLEDClient::enqueueRequest(RequestKind kind, const String* body, bool dedupe, bool replaceStateCommand) {
+    if (!ensureWorker()) {
+        _fetchStatus.store(FetchStatus::FAILED);
+        return false;
+    }
+
+    Request req{};
+    req.kind = kind;
+    req.body[0] = '\0';
+    if (body) {
+        size_t len = std::min(body->length(), MAX_BODY_LEN - 1);
+        memcpy(req.body, body->c_str(), len);
+        req.body[len] = '\0';
+    }
+
+    xSemaphoreTake(_queueMutex, portMAX_DELAY);
+
+    bool* dedupeFlag = nullptr;
+    switch (kind) {
+        case RequestKind::FETCH_STATE: dedupeFlag = &_queuedStateRefresh; break;
+        case RequestKind::FETCH_EFFECTS: dedupeFlag = &_queuedEffectsRefresh; break;
+        case RequestKind::FETCH_PRESETS: dedupeFlag = &_queuedPresetsRefresh; break;
+        case RequestKind::FETCH_ALL: dedupeFlag = &_queuedFetchAll; break;
+        default: break;
+    }
+
+    if (dedupe && dedupeFlag && *dedupeFlag) {
+        xSemaphoreGive(_queueMutex);
+        return false;
+    }
+
+    if (replaceStateCommand) {
+        UBaseType_t waiting = uxQueueMessagesWaiting(_requestQueue);
+        if (waiting > 0) {
+            Request temp[REQUEST_QUEUE_LENGTH];
+            UBaseType_t kept = 0;
+            for (UBaseType_t i = 0; i < waiting; ++i) {
+                Request cur{};
+                if (xQueueReceive(_requestQueue, &cur, 0) == pdTRUE) {
+                    if (cur.kind == RequestKind::SEND_STATE) continue;
+                    temp[kept++] = cur;
+                }
+            }
+            xQueueReset(_requestQueue);
+            _queuedStateRefresh = false;
+            _queuedEffectsRefresh = false;
+            _queuedPresetsRefresh = false;
+            _queuedFetchAll = false;
+            for (UBaseType_t i = 0; i < kept; ++i) {
+                xQueueSend(_requestQueue, &temp[i], 0);
+                switch (temp[i].kind) {
+                    case RequestKind::FETCH_STATE: _queuedStateRefresh = true; break;
+                    case RequestKind::FETCH_EFFECTS: _queuedEffectsRefresh = true; break;
+                    case RequestKind::FETCH_PRESETS: _queuedPresetsRefresh = true; break;
+                    case RequestKind::FETCH_ALL: _queuedFetchAll = true; break;
+                    default: break;
+                }
+            }
+        }
+    }
+
+    if (xQueueSend(_requestQueue, &req, 0) != pdTRUE) {
+        xSemaphoreGive(_queueMutex);
+        _fetchStatus.store(FetchStatus::FAILED);
+        return false;
+    }
+
+    if (dedupeFlag) *dedupeFlag = true;
+    if (kind == RequestKind::SEND_STATE) _lastCommandMs = millis();
+    xSemaphoreGive(_queueMutex);
+    return true;
 }
 
 bool WLEDClient::parseStateResponse(const String& response, WLEDState& state) {
@@ -133,188 +223,32 @@ bool WLEDClient::parsePresetsResponse(const String& response, std::vector<std::p
     return true;
 }
 
-bool WLEDClient::fetchState() {
-    return requestStateRefresh();
-}
-
-void asyncFetchTask(void* arg) {
-    WLEDClient* client = static_cast<WLEDClient*>(arg);
-    HTTPClient http;
-    uint8_t flags = client->_fetchFlags;
-    bool anySuccess = false;
-
-    if (client->getHost().isEmpty() || WiFi.status() != WL_CONNECTED) {
-        client->_fetchStatus.store(FetchStatus::FAILED);
-        vTaskDelete(nullptr);
-        return;
-    }
-
-    if (flags & FETCH_POST) {
-        String body;
-        xSemaphoreTake(client->_dataMutex, portMAX_DELAY);
-        body = client->_pendingPostBody;
-        client->_pendingPostBody = "";
-        xSemaphoreGive(client->_dataMutex);
-
-        if (!body.isEmpty()) {
-            String url = "http://" + client->getHost() + ":" + String(client->_port) + "/json/state";
-            http.begin(url);
-            http.addHeader("Content-Type", "application/json");
-            http.setTimeout(5000);
-            int code = http.POST(body);
-            http.end();
-
-            if (code > 0 && code < 400) {
-                anySuccess = true;
-                flags |= FETCH_STATE;
-            } else {
-                Serial.printf("[WLED] POST /json/state failed: %d\n", code);
-            }
-        }
-    }
-
-    if (flags & FETCH_STATE) {
-        String response;
-        String url = "http://" + client->getHost() + ":" + String(client->_port) + "/json/state";
-        if (httpGetInto(http, url, 3000, response)) {
-            WLEDState nextState;
-            if (client->parseStateResponse(response, nextState)) {
-                xSemaphoreTake(client->_dataMutex, portMAX_DELAY);
-                client->_state = nextState;
-                xSemaphoreGive(client->_dataMutex);
-                anySuccess = true;
-            }
-        }
-    }
-
-    if (flags & FETCH_EFFECTS) {
-        String response;
-        String url = "http://" + client->getHost() + ":" + String(client->_port) + "/json/effects";
-        if (httpGetInto(http, url, 3000, response)) {
-            std::vector<String> effects;
-            if (client->parseEffectsResponse(response, effects)) {
-                xSemaphoreTake(client->_dataMutex, portMAX_DELAY);
-                client->_effects = std::move(effects);
-                configStore.setCachedEffects(response);
-                xSemaphoreGive(client->_dataMutex);
-                anySuccess = true;
-            }
-        }
-    }
-
-    if (flags & FETCH_PRESETS) {
-        String response;
-        String url = "http://" + client->getHost() + ":" + String(client->_port) + "/presets.json";
-        if (httpGetInto(http, url, 10000, response)) {
-            std::vector<std::pair<int, String>> presets;
-            String cacheStr;
-            if (client->parsePresetsResponse(response, presets, &cacheStr)) {
-                xSemaphoreTake(client->_dataMutex, portMAX_DELAY);
-                client->_presets = std::move(presets);
-                configStore.setCachedPresets(cacheStr);
-                xSemaphoreGive(client->_dataMutex);
-                anySuccess = true;
-            }
-        }
-    }
-
-        client->_fetchStatus.store(anySuccess ? FetchStatus::DONE : FetchStatus::FAILED);
-    vTaskDelete(nullptr);
-}
-
-bool WLEDClient::startAsyncFetch(uint8_t flags, const String* postBody) {
-    FetchStatus current = _fetchStatus.load();
-    if (current == FetchStatus::IN_PROGRESS) return false;
-
-    if (!_dataMutex) {
-        _dataMutex = xSemaphoreCreateRecursiveMutex();
-        if (!_dataMutex) {
-            Serial.println("[WLED] Failed to create mutex");
-            return false;
-        }
-    }
-
-    if (postBody) {
-        xSemaphoreTake(_dataMutex, portMAX_DELAY);
-        _pendingPostBody = *postBody;
-        xSemaphoreGive(_dataMutex);
-        flags |= FETCH_POST;
-    }
-
-    _fetchFlags = flags;
-    _fetchStatus.store(FetchStatus::IN_PROGRESS);
-
-    BaseType_t ok = xTaskCreate(
-        asyncFetchTask,
-        "wled_fetch",
-        12288,
-        this,
-        1,
-        nullptr
-    );
-
-    if (ok != pdPASS) {
-        Serial.println("[WLED] Failed to start async fetch task");
-        _fetchStatus.store(FetchStatus::FAILED);
-        return false;
-    }
-
-    return true;
-}
-
-bool WLEDClient::asyncFetchAll() {
-    return startAsyncFetch(FETCH_ALL);
-}
-
-bool WLEDClient::requestStateRefresh() {
-    static uint32_t lastRequestMs = 0;
-    uint32_t now = millis();
-    if (_fetchStatus.load() == FetchStatus::IN_PROGRESS) return false;
-    if (now - lastRequestMs < 250) return false;
-    lastRequestMs = now;
-    return startAsyncFetch(FETCH_STATE);
-}
-
-bool WLEDClient::fetchEffects() {
-    return startAsyncFetch(FETCH_EFFECTS);
-}
-
-bool WLEDClient::fetchPresets() {
-    return startAsyncFetch(FETCH_PRESETS);
-}
-
-String WLEDClient::httpGet(const String& path) {
-    if (WiFi.status() != WL_CONNECTED || _host.isEmpty()) return "";
-
+bool WLEDClient::httpGetInto(const String& path, uint32_t timeoutMs, String& response) {
+    if (WiFi.status() != WL_CONNECTED || _host.isEmpty()) return false;
     HTTPClient http;
     String url = "http://" + _host + ":" + String(_port) + path;
     http.begin(url);
-    http.setTimeout(3000);
+    http.setTimeout(timeoutMs);
     int code = http.GET();
-
     if (code != HTTP_CODE_OK) {
-        Serial.printf("[WLED] GET %s failed: %d\n", path.c_str(), code);
+        Serial.printf("[WLED] GET %s failed: %d\n", url.c_str(), code);
         http.end();
-        return "";
+        return false;
     }
-
-    String payload = http.getString();
+    response = http.getString();
     http.end();
-    return payload;
+    return true;
 }
 
 bool WLEDClient::httpPost(const String& path, const String& body) {
     if (WiFi.status() != WL_CONNECTED || _host.isEmpty()) return false;
-
     HTTPClient http;
     String url = "http://" + _host + ":" + String(_port) + path;
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
     http.setTimeout(5000);
-
     int code = http.POST(body);
     http.end();
-
     if (code <= 0 || code >= 400) {
         Serial.printf("[WLED] POST %s failed: %d\n", path.c_str(), code);
         return false;
@@ -322,8 +256,151 @@ bool WLEDClient::httpPost(const String& path, const String& body) {
     return true;
 }
 
+void WLEDClient::markReachable(bool reachable) {
+    xSemaphoreTake(_dataMutex, portMAX_DELAY);
+    _state.reachable = reachable;
+    xSemaphoreGive(_dataMutex);
+}
+
+void WLEDClient::processRequest(const Request& req) {
+    bool success = false;
+
+    xSemaphoreTake(_queueMutex, portMAX_DELAY);
+    switch (req.kind) {
+        case RequestKind::FETCH_STATE: _queuedStateRefresh = false; break;
+        case RequestKind::FETCH_EFFECTS: _queuedEffectsRefresh = false; break;
+        case RequestKind::FETCH_PRESETS: _queuedPresetsRefresh = false; break;
+        case RequestKind::FETCH_ALL: _queuedFetchAll = false; break;
+        default: break;
+    }
+    xSemaphoreGive(_queueMutex);
+
+    if (_host.isEmpty() || WiFi.status() != WL_CONNECTED) {
+        _fetchStatus.store(FetchStatus::FAILED);
+        markReachable(false);
+        return;
+    }
+
+    if (req.kind == RequestKind::SEND_STATE) {
+        success = httpPost("/json/state", String(req.body));
+        if (success) {
+            String response;
+            if (httpGetInto("/json/state", 3000, response)) {
+                WLEDState nextState;
+                if (parseStateResponse(response, nextState)) {
+                    xSemaphoreTake(_dataMutex, portMAX_DELAY);
+                    _state = nextState;
+                    xSemaphoreGive(_dataMutex);
+                    success = true;
+                } else {
+                    success = false;
+                }
+            } else {
+                success = false;
+            }
+        }
+    } else if (req.kind == RequestKind::FETCH_STATE) {
+        String response;
+        if (httpGetInto("/json/state", 3000, response)) {
+            WLEDState nextState;
+            if (parseStateResponse(response, nextState)) {
+                xSemaphoreTake(_dataMutex, portMAX_DELAY);
+                _state = nextState;
+                xSemaphoreGive(_dataMutex);
+                success = true;
+            }
+        }
+    } else if (req.kind == RequestKind::FETCH_EFFECTS) {
+        String response;
+        if (httpGetInto("/json/effects", 3000, response)) {
+            std::vector<String> effects;
+            if (parseEffectsResponse(response, effects)) {
+                xSemaphoreTake(_dataMutex, portMAX_DELAY);
+                _effects = std::move(effects);
+                configStore.setCachedEffects(response);
+                xSemaphoreGive(_dataMutex);
+                success = true;
+            }
+        }
+    } else if (req.kind == RequestKind::FETCH_PRESETS) {
+        String response;
+        if (httpGetInto("/presets.json", 10000, response)) {
+            std::vector<std::pair<int, String>> presets;
+            String cacheStr;
+            if (parsePresetsResponse(response, presets, &cacheStr)) {
+                xSemaphoreTake(_dataMutex, portMAX_DELAY);
+                _presets = std::move(presets);
+                configStore.setCachedPresets(cacheStr);
+                xSemaphoreGive(_dataMutex);
+                success = true;
+            }
+        }
+    } else if (req.kind == RequestKind::FETCH_ALL) {
+        bool any = false;
+        String response;
+        if (httpGetInto("/json/state", 3000, response)) {
+            WLEDState nextState;
+            if (parseStateResponse(response, nextState)) {
+                xSemaphoreTake(_dataMutex, portMAX_DELAY);
+                _state = nextState;
+                xSemaphoreGive(_dataMutex);
+                any = true;
+            }
+        }
+        if (httpGetInto("/json/effects", 3000, response)) {
+            std::vector<String> effects;
+            if (parseEffectsResponse(response, effects)) {
+                xSemaphoreTake(_dataMutex, portMAX_DELAY);
+                _effects = std::move(effects);
+                configStore.setCachedEffects(response);
+                xSemaphoreGive(_dataMutex);
+                any = true;
+            }
+        }
+        if (httpGetInto("/presets.json", 10000, response)) {
+            std::vector<std::pair<int, String>> presets;
+            String cacheStr;
+            if (parsePresetsResponse(response, presets, &cacheStr)) {
+                xSemaphoreTake(_dataMutex, portMAX_DELAY);
+                _presets = std::move(presets);
+                configStore.setCachedPresets(cacheStr);
+                xSemaphoreGive(_dataMutex);
+                any = true;
+            }
+        }
+        success = any;
+    }
+
+    if (!success) markReachable(false);
+    _fetchStatus.store(success ? FetchStatus::DONE : FetchStatus::FAILED);
+}
+
+bool WLEDClient::fetchState() {
+    return requestStateRefresh();
+}
+
+bool WLEDClient::asyncFetchAll() {
+    return enqueueRequest(RequestKind::FETCH_ALL, nullptr, true, false);
+}
+
+bool WLEDClient::requestStateRefresh() {
+    uint32_t now = millis();
+    if (_lastCommandMs != 0 && (now - _lastCommandMs) < POST_REFRESH_GUARD_MS) return false;
+    if ((now - _lastStateRequestMs) < STATE_REFRESH_MIN_MS) return false;
+    _lastStateRequestMs = now;
+    return enqueueRequest(RequestKind::FETCH_STATE, nullptr, true, false);
+}
+
+bool WLEDClient::fetchEffects() {
+    return enqueueRequest(RequestKind::FETCH_EFFECTS, nullptr, true, false);
+}
+
+bool WLEDClient::fetchPresets() {
+    return enqueueRequest(RequestKind::FETCH_PRESETS, nullptr, true, false);
+}
+
 bool WLEDClient::sendState(const String& json) {
-    return startAsyncFetch(FETCH_NONE, &json);
+    return enqueueRequest(RequestKind::SEND_STATE, &json, false, true);
 }
 
 bool WLEDClient::togglePower() {
@@ -335,9 +412,7 @@ bool WLEDClient::setPower(bool on) {
     JsonDocument doc;
     doc["on"] = on;
     serializeJson(doc, body);
-    bool ok = sendState(body);
-    if (ok) _state.on = on;
-    return ok;
+    return sendState(body);
 }
 
 bool WLEDClient::setBrightness(uint8_t bri) {
@@ -345,9 +420,7 @@ bool WLEDClient::setBrightness(uint8_t bri) {
     JsonDocument doc;
     doc["bri"] = bri;
     serializeJson(doc, body);
-    bool ok = sendState(body);
-    if (ok) _state.brightness = bri;
-    return ok;
+    return sendState(body);
 }
 
 bool WLEDClient::setColor(uint8_t r, uint8_t g, uint8_t b) {
@@ -367,15 +440,7 @@ bool WLEDClient::setState(bool on, uint8_t bri, uint8_t r, uint8_t g, uint8_t b)
     c0.add(g);
     c0.add(b);
     serializeJson(doc, body);
-    bool ok = sendState(body);
-    if (ok) {
-        _state.on = on;
-        _state.brightness = bri;
-        _state.r = r;
-        _state.g = g;
-        _state.b = b;
-    }
-    return ok;
+    return sendState(body);
 }
 
 bool WLEDClient::setPreset(int presetId) {
@@ -383,9 +448,7 @@ bool WLEDClient::setPreset(int presetId) {
     JsonDocument doc;
     doc["ps"] = presetId;
     serializeJson(doc, body);
-    bool ok = sendState(body);
-    if (ok) _state.preset = presetId;
-    return ok;
+    return sendState(body);
 }
 
 bool WLEDClient::setEffect(int effectId) {
@@ -395,7 +458,5 @@ bool WLEDClient::setEffect(int effectId) {
     JsonObject s0 = seg.add<JsonObject>();
     s0["fx"] = effectId;
     serializeJson(doc, body);
-    bool ok = sendState(body);
-    if (ok) _state.effect = effectId;
-    return ok;
+    return sendState(body);
 }
