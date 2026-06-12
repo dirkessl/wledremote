@@ -65,11 +65,9 @@ static uint32_t _recoverTimer = 0;
 static bool _homeKitStarted = false;
 static int _pendingBrightness = -1;
 static uint8_t _lastSentBrightness = 0;
-static uint32_t _lastBrightnessFlush = 0;
 static uint32_t _lastBrightnessInputMs = 0;
 static uint32_t _lastBrightnessUiRedraw = 0;
-static constexpr uint32_t BRIGHTNESS_SETTLE_MS = 140;
-static constexpr uint32_t BRIGHTNESS_FLUSH_MIN_MS = 90;
+static constexpr uint32_t BRIGHTNESS_INTERACTION_HOLD_MS = 450;
 static constexpr uint32_t BRIGHTNESS_UI_REDRAW_MS = 33;
 
 
@@ -300,26 +298,28 @@ void transitionTo(AppState newState) {
 void handleRunningState() {
   uint32_t now = millis();
 
+  bool brightnessInteractionActive =
+      (_pendingBrightness >= 0) && ((now - _lastBrightnessInputMs) < BRIGHTNESS_INTERACTION_HOLD_MS);
+
   if (_pendingBrightness >= 0) {
     bool workerBusy = wledClient.getFetchStatus() == FetchStatus::IN_PROGRESS;
-    bool settled = (now - _lastBrightnessInputMs) >= BRIGHTNESS_SETTLE_MS;
-    bool flushDue = (now - _lastBrightnessFlush) >= BRIGHTNESS_FLUSH_MIN_MS;
     uint8_t targetBri = (uint8_t)_pendingBrightness;
     uint8_t confirmedBri = wledClient.getState().brightness;
 
     if (targetBri == confirmedBri || targetBri == _lastSentBrightness) {
       _pendingBrightness = -1;
-    } else if (!workerBusy && settled && flushDue) {
+      brightnessInteractionActive = false;
+    } else if (!workerBusy) {
       if (wledClient.setBrightness(targetBri)) {
-        _lastBrightnessFlush = now;
         _lastSentBrightness = targetBri;
       }
       _pendingBrightness = -1;
+      brightnessInteractionActive = true;
     }
   }
 
   // Poll WLED state periodically without blocking UI
-  if (now - lastPoll >= getPollInterval()) {
+  if (!brightnessInteractionActive && now - lastPoll >= getPollInterval()) {
     lastPoll = now;
     if (wledClient.getFetchStatus() != FetchStatus::IN_PROGRESS) {
       wledClient.requestStateRefresh();
