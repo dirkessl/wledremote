@@ -65,6 +65,7 @@ static uint32_t _recoverTimer = 0;
 static bool _homeKitStarted = false;
 static bool _brightnessModeActive = false;
 static int _previewBrightness = -1;
+static bool _brightnessDirty = false;
 static uint32_t _lastBrightnessInputMs = 0;
 static constexpr uint32_t BRIGHTNESS_INTERACTION_HOLD_MS = 450;
 
@@ -298,7 +299,15 @@ void handleRunningState() {
   bool brightnessInteractionActive =
       _brightnessModeActive && ((now - _lastBrightnessInputMs) < BRIGHTNESS_INTERACTION_HOLD_MS);
 
+  if (_brightnessModeActive && _brightnessDirty &&
+      wledClient.getFetchStatus() != FetchStatus::IN_PROGRESS) {
+    if (wledClient.setBrightness((uint8_t)_previewBrightness)) {
+      _brightnessDirty = false;
+    }
+  }
+
   if (_brightnessModeActive && !brightnessInteractionActive &&
+      !_brightnessDirty && wledClient.getFetchStatus() != FetchStatus::IN_PROGRESS &&
       ui.getCurrentScreen() == AppScreen::MAIN_STATUS) {
     _brightnessModeActive = false;
     _previewBrightness = -1;
@@ -319,7 +328,16 @@ void handleRunningState() {
     wledClient.clearFetchStatus();
     homeKitBridge.syncState(confirmedState);
 
-    if (!_brightnessModeActive && ui.getCurrentScreen() == AppScreen::MAIN_STATUS) {
+    if (_brightnessModeActive) {
+      if (_previewBrightness >= 0 && confirmedState.brightness == (uint8_t)_previewBrightness) {
+        _brightnessDirty = false;
+      }
+      if (ui.getCurrentScreen() == AppScreen::MAIN_STATUS && _previewBrightness >= 0) {
+        WLEDState previewState = confirmedState;
+        previewState.brightness = (uint8_t)_previewBrightness;
+        ui.showMainStatus(previewState, wifiSetup.isConnected());
+      }
+    } else if (ui.getCurrentScreen() == AppScreen::MAIN_STATUS) {
       ui.showMainStatus(confirmedState, wifiSetup.isConnected());
     }
   } else if (fetchStatus == FetchStatus::FAILED) {
@@ -353,11 +371,8 @@ void handleButtons() {
       int bri = constrain(baseBri + encoderMove * step, 0, 255);
       _brightnessModeActive = true;
       _previewBrightness = bri;
+      _brightnessDirty = true;
       _lastBrightnessInputMs = millis();
-
-      if (wledClient.getFetchStatus() != FetchStatus::IN_PROGRESS) {
-        wledClient.setBrightness((uint8_t)bri);
-      }
 
       state.brightness = bri;
       ui.showMainStatus(state, wifiSetup.isConnected());
@@ -367,6 +382,7 @@ void handleButtons() {
     if (encoderBtnEvt == ButtonEvent::SHORT_PRESS) {
       _brightnessModeActive = false;
       _previewBrightness = -1;
+      _brightnessDirty = false;
       wledClient.togglePower();
       ui.showMainStatus(wledClient.getState());
       return;
@@ -491,7 +507,7 @@ void handleButtons() {
     if (encoderBtnEvt == ButtonEvent::SHORT_PRESS) {
       int idx = ui.getSelectedIndex();
       if (idx >= 0 && idx < 12) {
-        uint8_t bri = (_pendingBrightness >= 0) ? (uint8_t)_pendingBrightness : wledClient.getState().brightness;
+        uint8_t bri = (_brightnessModeActive && _previewBrightness >= 0) ? (uint8_t)_previewBrightness : wledClient.getState().brightness;
         wledClient.setState(true, bri, presetColors[idx].r, presetColors[idx].g,
                             presetColors[idx].b);
         ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());

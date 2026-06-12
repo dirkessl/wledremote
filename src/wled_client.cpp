@@ -282,20 +282,7 @@ void WLEDClient::processRequest(const Request& req) {
     if (req.kind == RequestKind::SEND_STATE) {
         success = httpPost("/json/state", String(req.body));
         if (success) {
-            String response;
-            if (httpGetInto("/json/state", 3000, response)) {
-                WLEDState nextState;
-                if (parseStateResponse(response, nextState)) {
-                    xSemaphoreTake(_dataMutex, portMAX_DELAY);
-                    _state = nextState;
-                    xSemaphoreGive(_dataMutex);
-                    success = true;
-                } else {
-                    success = false;
-                }
-            } else {
-                success = false;
-            }
+            markReachable(true);
         }
     } else if (req.kind == RequestKind::FETCH_STATE) {
         String response;
