@@ -11,16 +11,6 @@
 #include "wled_client.h"
 #include "wled_discovery.h"
 
-// Hardware pins
-// Bare 5-pin rotary encoder wiring:
-//   Rotary side:       Switch side:
-//     [CLK] [GND] [DT]     [SW] [GND]
-//
-//   - CLK -> ENCODER_CLK_PIN (GPIO 21)
-//   - DT  -> ENCODER_DT_PIN  (GPIO 22)
-//   - SW  -> ENCODER_SW_PIN  (GPIO 23)
-//   - Connect both GND pins to board ground
-
 #define BUTTON_LEFT_PIN 0
 #define BUTTON_RIGHT_PIN 14
 #define POWER_PIN 15
@@ -32,10 +22,8 @@
 #define ENCODER_DT_PIN 17
 #define ENCODER_SW_PIN 10
 
-// Display instance
 static LGFX tft;
 
-// Application state
 enum class AppState {
   BOOT,
   WIFI_CONNECTING,

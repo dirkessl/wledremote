@@ -1,8 +1,6 @@
 #include "wled_client.h"
-
 #include <HTTPClient.h>
 #include <WiFi.h>
-
 #include "config_store.h"
 
 namespace {

@@ -2,10 +2,6 @@
 
 ButtonHandler buttons;
 
-// Use a bare 5-pin mechanical rotary encoder:
-//   - 3 pins for the rotary contacts (CLK/A, DT/B, GND common)
-//   - 2 pins for the push switch (SW, GND)
-// Internal INPUT_PULLUP is used for all encoder pins.
 void ButtonHandler::begin(uint8_t leftPin, uint8_t rightPin,
                           uint8_t encoderClkPin, uint8_t encoderDtPin, uint8_t encoderSwPin) {
     _left.pin = leftPin;

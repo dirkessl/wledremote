@@ -8,7 +8,6 @@ WiFiSetup wifiSetup;
 
 static Preferences wifiPrefs;
 
-// ---- Try saved credentials only (no portal) ----
 bool WiFiSetup::begin(const char* apName, uint16_t portalTimeout) {
     wifiPrefs.begin("wifi-creds", true);
     String ssid = wifiPrefs.getString("ssid", "");
@@ -26,7 +25,6 @@ bool WiFiSetup::begin(const char* apName, uint16_t portalTimeout) {
     return false;
 }
 
-// ---- Non-blocking captive portal ----
 void WiFiSetup::startPortal(const char* apName) {
     // Clean slate
     WiFi.disconnect(true);
@@ -115,7 +113,6 @@ bool WiFiSetup::reconnect(uint8_t maxAttempts) {
     return false;
 }
 
-// ---- Try connecting with saved creds (blocking, used at boot only) ----
 bool WiFiSetup::tryConnectSaved(const String& ssid, const String& pass) {
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);

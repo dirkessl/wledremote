@@ -5,7 +5,6 @@
 
 class WiFiSetup {
 public:
-    // Try saved credentials only — no portal. Returns true if connected.
     bool begin(const char* apName = "WLED-Bridge", uint16_t portalTimeout = 180);
 
     // Start captive portal in non-blocking mode (call processPortal() in loop)
