@@ -52,32 +52,8 @@ static AppState appState = AppState::BOOT;
 static uint32_t lastPoll = 0;
 static constexpr uint32_t POLL_INTERVAL_MS = 2000;
 
-// Screensaver state machine
-enum class ScreenState {
-  ON,    // Full brightness, 4 sec
-  DIM,   // Dimmed, 4 sec
-  SAVER, // Raindrop animation, 5 sec
-  OFF    // Display off
-};
-static ScreenState screenState = ScreenState::ON;
-static uint32_t screenStateStart = 0;
-static constexpr uint32_t SCREEN_ON_MS = 60000;
-static constexpr uint32_t SCREEN_DIM_MS = 60000;
-static constexpr uint32_t SCREEN_SAVER_MS = 60000;
-
-// Ambient screensaver state
-struct AmbientBlob {
-  float x, y;
-  float dx, dy;
-  float radius;
-  uint16_t color;
-};
-static constexpr int NUM_BLOBS = 5;
-static AmbientBlob blobs[NUM_BLOBS];
-static uint32_t lastBlobFrame = 0;
-static bool saverInitialized = false;
-
 // Predefined colors for color picker
+
 struct PresetColor {
   uint8_t r, g, b;
 };
@@ -93,9 +69,6 @@ void handleRunningState();
 void handleRecoveringState();
 void handleLoadingState();
 void handleButtons();
-void updateScreensaver();
-void initAmbientSaver();
-void drawAmbientSaver();
 
 // WiFi reconnect state
 static uint8_t _wifiLostRetry = 0;
@@ -112,17 +85,7 @@ static constexpr uint32_t BRIGHTNESS_UI_REDRAW_MS = 33;
 uint32_t getPollInterval() {
   if (appState != AppState::RUNNING)
     return 5000;
-  switch (screenState) {
-  case ScreenState::ON:
-    return 1000;
-  case ScreenState::DIM:
-    return 2000;
-  case ScreenState::SAVER:
-    return 4000;
-  case ScreenState::OFF:
-    return 10000;
-  }
-  return 2000;
+  return 1000;
 }
 
 void setup() {
@@ -160,8 +123,6 @@ void setup() {
 
   delay(1500); // Show boot screen
 
-  // Initialize screensaver timer
-  screenStateStart = millis();
 
   // Transition to WiFi setup
   transitionTo(AppState::WIFI_CONNECTING);
@@ -172,30 +133,9 @@ void loop() {
   buttons.update();
 
 
-  // Handle screensaver: button press wakes display
   if (buttons.anyActivity()) {
     ui.resetActivityTimer();
-    if (screenState != ScreenState::ON) {
-      screenState = ScreenState::ON;
-      screenStateStart = millis();
-      tft.setBrightness(200);
-      saverInitialized = false;
-      // Redraw current screen
-      if (appState == AppState::RUNNING) {
-        // Immediate async refresh on wake
-        if (wledClient.getFetchStatus() != FetchStatus::IN_PROGRESS) {
-          wledClient.requestStateRefresh();
-        }
-        lastPoll = millis();
-        ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());
-      }
-    } else {
-      screenStateStart = millis(); // Reset timer on activity
-    }
   }
-
-  // Update screensaver state machine
-  updateScreensaver();
 
   // State machine
   switch (appState) {
@@ -393,8 +333,7 @@ void handleRunningState() {
     wledClient.clearFetchStatus();
     homeKitBridge.syncState(wledClient.getState());
 
-    if (ui.getCurrentScreen() == AppScreen::MAIN_STATUS &&
-        screenState != ScreenState::OFF) {
+    if (ui.getCurrentScreen() == AppScreen::MAIN_STATUS) {
       ui.showMainStatus(wledClient.getState(), wifiSetup.isConnected());
     }
   } else if (fetchStatus == FetchStatus::FAILED) {
@@ -424,7 +363,7 @@ void handleButtons() {
     if (encoderMove != 0) {
       WLEDState state = wledClient.getState();
       int baseBri = (_pendingBrightness >= 0) ? _pendingBrightness : state.brightness;
-      int step = (screenState == ScreenState::ON) ? 8 : 16;
+      int step = 8;
       int bri = constrain(baseBri + encoderMove * step, 0, 255);
       _pendingBrightness = bri;
       state.brightness = bri;
@@ -612,162 +551,3 @@ void handleButtons() {
   }
 }
 
-void initAmbientSaver() {
-  for (int i = 0; i < NUM_BLOBS; i++) {
-    blobs[i].x = random(20, 150);
-    blobs[i].y = random(20, 300);
-    blobs[i].dx = (random(10, 30) / 100.0f) * (random(0, 2) ? 1 : -1);
-    blobs[i].dy = (random(10, 30) / 100.0f) * (random(0, 2) ? 1 : -1);
-    blobs[i].radius = random(10, 25);
-
-    // Pick a soft color based on WLED color if available, or just random pastel
-    uint8_t r = wledClient.getState().r;
-    uint8_t g = wledClient.getState().g;
-    uint8_t b = wledClient.getState().b;
-    if (r < 20 && g < 20 && b < 20) {
-      r = random(100, 255);
-      g = random(100, 255);
-      b = random(100, 255);
-    }
-    blobs[i].color = tft.color565(r / 3, g / 3, b / 3); // dimmed
-  }
-}
-
-void drawAmbientSaver() {
-  uint32_t now = millis();
-  if (now - lastBlobFrame < 50)
-    return; // ~20 fps
-  lastBlobFrame = now;
-
-  tft.fillScreen(TFT_BLACK);
-
-  for (int i = 0; i < NUM_BLOBS; i++) {
-    blobs[i].x += blobs[i].dx;
-    blobs[i].y += blobs[i].dy;
-
-    if (blobs[i].x < blobs[i].radius || blobs[i].x > 170 - blobs[i].radius)
-      blobs[i].dx *= -1;
-    if (blobs[i].y < blobs[i].radius || blobs[i].y > 320 - blobs[i].radius)
-      blobs[i].dy *= -1;
-
-    tft.fillCircle((int)blobs[i].x, (int)blobs[i].y, (int)blobs[i].radius,
-                   blobs[i].color);
-  }
-}
-
-void updateScreensaver() {
-  uint32_t elapsed = millis() - screenStateStart;
-  bool stripOn = wledClient.getState().on;
-
-  switch (screenState) {
-  case ScreenState::ON:
-    if (elapsed >= SCREEN_ON_MS) {
-      screenState = ScreenState::DIM;
-      screenStateStart = millis();
-      tft.setBrightness(10);
-    }
-    break;
-
-  case ScreenState::DIM:
-    if (!stripOn && elapsed >= SCREEN_DIM_MS) {
-      screenState = ScreenState::SAVER;
-      screenStateStart = millis();
-      tft.setBrightness(80);
-      saverInitialized = false;
-    }
-    break;
-
-  case ScreenState::SAVER:
-    if (stripOn) {
-      screenState = ScreenState::DIM;
-      screenStateStart = millis();
-      tft.setBrightness(10);
-      saverInitialized = false;
-      break;
-    }
-
-    if (!saverInitialized) {
-      initAmbientSaver();
-      saverInitialized = true;
-    }
-    drawAmbientSaver();
-    if (elapsed >= SCREEN_SAVER_MS) {
-      screenState = ScreenState::OFF;
-      screenStateStart = millis();
-      tft.setBrightness(10);
-      tft.fillScreen(TFT_BLACK);
-    }
-    break;
-
-  case ScreenState::OFF:
-    if (stripOn) {
-      screenState = ScreenState::DIM;
-      screenStateStart = millis();
-      tft.setBrightness(0);
-      saverInitialized = false;
-    }
-    break;
-  }
-}
-
-
-void handleRecoveringState() {
-  uint32_t now = millis();
-  // Try to reconnect every 5 seconds (non-blocking)
-  if (now - _recoverTimer >= 5000) {
-    _recoverTimer = now;
-
-    if (!wifiSetup.isConnected()) {
-      Serial.println("[WiFi] Reconnecting...");
-      _recoverMsg = "Reconnecting WiFi...";
-      ui.showRecovering(_recoverMsg);
-      if (wifiSetup.reconnect()) {
-        wledDiscovery.begin();
-        _recoverMsg = "Connecting WLED...";
-        ui.showRecovering(_recoverMsg);
-      }
-    } else {
-      FetchStatus status = wledClient.getFetchStatus();
-      if (status == FetchStatus::IDLE || status == FetchStatus::FAILED) {
-        wledClient.clearFetchStatus();
-        wledClient.requestStateRefresh();
-        _recoverMsg = "Retrying WLED...";
-        ui.showRecovering(_recoverMsg);
-      } else if (status == FetchStatus::DONE) {
-        wledClient.clearFetchStatus();
-        transitionTo(AppState::RUNNING);
-      }
-    }
-  }
-}
-
-// Handle loading state — wait for async fetch to complete with timeout
-static uint32_t _loadingStart = 0;
-static constexpr uint32_t LOADING_TIMEOUT_MS = 15000;
-
-void handleLoadingState() {
-  uint32_t now = millis();
-
-  // Start async fetch on first call
-  if (wledClient.getFetchStatus() == FetchStatus::IDLE) {
-    _loadingStart = now;
-    wledClient.asyncFetchAll();
-  }
-
-  // Periodically redraw loading screen with animated dots
-  static uint32_t _lastRender = 0;
-  if (now - _lastRender >= 500) {
-    _lastRender = now;
-    ui.showLoading();
-  }
-
-  // Check completion or timeout
-  if (wledClient.getFetchStatus() == FetchStatus::DONE) {
-    wledClient.clearFetchStatus();
-    transitionTo(AppState::RUNNING);
-  } else if (now - _loadingStart >= LOADING_TIMEOUT_MS) {
-    Serial.println("[WLED] Loading timeout, proceeding to RUNNING");
-    wledClient.clearFetchStatus();
-    transitionTo(AppState::RUNNING);
-  }
-}
