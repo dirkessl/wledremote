@@ -68,6 +68,38 @@ static int _previewBrightness = -1;
 static bool _brightnessDirty = false;
 static uint32_t _lastBrightnessInputMs = 0;
 static constexpr uint32_t BRIGHTNESS_INTERACTION_HOLD_MS = 450;
+static constexpr uint32_t DISPLAY_IDLE_TIMEOUT_MS = 60000;
+static constexpr uint8_t DISPLAY_ACTIVE_BRIGHTNESS = 200;
+static constexpr uint8_t DISPLAY_DIMMED_BRIGHTNESS = 25;
+static bool _displayScreensaverActive = false;
+static uint8_t _currentDisplayBrightness = DISPLAY_ACTIVE_BRIGHTNESS;
+
+static void applyDisplayBrightness(uint8_t brightness) {
+  if (_currentDisplayBrightness == brightness) return;
+  tft.setBrightness(brightness);
+  _currentDisplayBrightness = brightness;
+}
+
+static void updateDisplayScreensaver() {
+  if (appState != AppState::RUNNING) {
+    _displayScreensaverActive = false;
+    applyDisplayBrightness(DISPLAY_ACTIVE_BRIGHTNESS);
+    return;
+  }
+
+  bool idle = ui.shouldDim();
+  bool stripOn = wledClient.getState().on;
+  uint8_t targetBrightness = DISPLAY_ACTIVE_BRIGHTNESS;
+
+  if (idle) {
+    _displayScreensaverActive = true;
+    targetBrightness = stripOn ? DISPLAY_DIMMED_BRIGHTNESS : 0;
+  } else {
+    _displayScreensaverActive = false;
+  }
+
+  applyDisplayBrightness(targetBrightness);
+}
 
 
 uint32_t getPollInterval() {
@@ -88,7 +120,7 @@ void setup() {
   // Initialize display
   tft.init();
   tft.setRotation(0); // Portrait, buttons at bottom
-  tft.setBrightness(200);
+  tft.setBrightness(DISPLAY_ACTIVE_BRIGHTNESS);
   tft.fillScreen(TFT_BLACK);
 
   // Initialize UI with display
@@ -124,6 +156,8 @@ void loop() {
   if (buttons.anyActivity()) {
     ui.resetActivityTimer();
   }
+
+  updateDisplayScreensaver();
 
   // State machine
   switch (appState) {

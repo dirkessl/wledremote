@@ -1,0 +1,23 @@
+NOTICE
+
+This project, WLED Remote & HomeKit Bridge, is licensed under the MIT License.
+
+The project uses the following third-party open source components:
+
+- LovyanGFX
+  - Repository: https://github.com/lovyan03/LovyanGFX
+  - License: FreeBSD / BSD-style license
+
+- WiFiManager
+  - Repository: https://github.com/tzapu/WiFiManager
+  - License: MIT License
+
+- HomeSpan
+  - Repository: https://github.com/HomeSpan/HomeSpan
+  - License: MIT License
+
+- ArduinoJson
+  - Repository: https://github.com/bblanchon/ArduinoJson
+  - License: MIT License
+
+Please refer to each dependency's repository and license file for the complete and authoritative license text and any additional notice requirements.
