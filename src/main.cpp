@@ -111,7 +111,7 @@ uint32_t getPollInterval() {
 void setup() {
   Serial.begin(115200);
   delay(500);
-  Serial.println("\n[BOOT] WLED Remote starting...");
+  Serial.println("\n[BOOT] WLED Remote+");
 
   // Enable display power (required for T-Display S3)
   pinMode(POWER_PIN, OUTPUT);

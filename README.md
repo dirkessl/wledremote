@@ -1,4 +1,4 @@
-# WLED Remote & HomeKit Bridge
+# WLED Remote+ - WLED Remote & HomeKit Bridge
 
 A standalone ESP32-S3 controller for WLED that combines a physical remote UI with a HomeKit bridge on a LilyGo T-Display S3. The project provides local hardware controls, WLED discovery and control over the network, and Apple Home integration in a single device.
 

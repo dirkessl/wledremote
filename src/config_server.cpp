@@ -11,7 +11,7 @@ ConfigServer configServer;
 static const char HTML_HEADER[] PROGMEM = R"rawliteral(
 <!DOCTYPE html><html><head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>WLED Remote Setup</title>
+<title>WLED Remote+ Setup</title>
 <style>
 body{font-family:sans-serif;background:#1a1a2e;color:#eee;margin:0;padding:20px}
 h1{color:#00bfff;margin-top:0}
@@ -60,7 +60,7 @@ void ConfigServer::handleRoot() {
     String html;
     html.reserve(4096);
     html += FPSTR(HTML_HEADER);
-    html += F("<h1>WLED Remote Setup</h1>");
+    html += F("<h1>WLED Remote+ Setup</h1>");
 
     // Current configuration
     html += F("<div class='card'><h2>WLED Connection</h2>");

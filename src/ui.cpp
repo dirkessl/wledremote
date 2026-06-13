@@ -143,7 +143,7 @@ void UI::showBoot() {
     _sprite.setTextSize(2);
     int nameW = 11 * 12;  // "WLED Remote" at size 2
     _sprite.setCursor((SCREEN_W - nameW) / 2, logoY + LOGO_H + 16);
-    _sprite.print("WLED Remote");
+    _sprite.print("WLED Remote+");
 
     // Studio name
     _sprite.setTextColor(0x8E8E93U);
