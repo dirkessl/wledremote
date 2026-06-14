@@ -38,7 +38,7 @@ The firmware talks to WLED over HTTP using endpoints such as `/json/state`, `/js
 
 ## AI assistance
 
-This project was developed with the help of AI-assisted tooling for planning, code generation, refactoring, and documentation support. Depending on the Task, different Technologies whre used. Mostly QWEN and GEMMA Models through ollama, but also cloud Models like Claude Opus were used.
+This project was developed with the help of AI-assisted tooling for planning, code generation, refactoring, and documentation support. Depending on the Task, different Technologies whre used. Mostly QWEN and GEMMA Models through ollama, but also cloud Models like Claude Opus were used. There are quite some files in this repository to guide AI Agents into writing better code and not making too many mistakes. You can use them as a guideline for your own project.
 
 ## License
 
