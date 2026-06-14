@@ -2,6 +2,10 @@
 
 A standalone ESP32-S3 controller for WLED that combines a physical remote UI with a HomeKit bridge on a LilyGo T-Display S3. The project provides local hardware controls, WLED discovery and control over the network, and Apple Home integration in a single device.
 
+## Web installer
+
+Flash the latest firmware from the browser through GitHub Pages: [Open the WLEDRemote+ installer](https://dirkessl.github.io/wledremote/).
+
 ## Features
 
 - Physical remote interface with the built-in display, left/right buttons, and rotary encoder on the LilyGo T-Display S3 hardware.

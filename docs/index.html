@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WLEDRemote+ Web Installer</title>
+  <meta name="description" content="Browser-based installer for WLEDRemote+ on LilyGo T-Display S3.">
+  <style>
+    :root {
+      color-scheme: dark light;
+      --bg: #0f1115;
+      --panel: #171a21;
+      --panel-2: #1f2430;
+      --text: #f4f7fb;
+      --muted: #aab4c3;
+      --accent: #46c2ff;
+      --accent-hover: #2ca8e6;
+      --border: #2b3242;
+      --ok: #64d38a;
+      --warn: #ffcc66;
+      --shadow: rgba(0, 0, 0, 0.28);
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f4f7fb;
+        --panel: #ffffff;
+        --panel-2: #eef3f8;
+        --text: #17202b;
+        --muted: #5f6b7a;
+        --accent: #006fbb;
+        --accent-hover: #005c9b;
+        --border: #d8e0ea;
+        --ok: #21864c;
+        --warn: #a56a00;
+        --shadow: rgba(10, 20, 30, 0.08);
+      }
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, rgba(70, 194, 255, 0.14), transparent 28%), var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    .wrap {
+      width: min(920px, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: 3rem 0 4rem;
+    }
+    .hero {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      box-shadow: 0 16px 48px var(--shadow);
+      padding: 2rem;
+      margin-bottom: 1.5rem;
+    }
+    .badge {
+      display: inline-block;
+      background: var(--panel-2);
+      color: var(--accent);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0.35rem 0.75rem;
+      font-size: 0.9rem;
+      margin-bottom: 1rem;
+    }
+    h1 {
+      margin: 0 0 0.75rem;
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      line-height: 1.08;
+    }
+    p.lead {
+      margin: 0;
+      max-width: 60ch;
+      color: var(--muted);
+      font-size: 1.05rem;
+    }
+    .grid {
+      display: grid;
+      gap: 1.5rem;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 1.5rem;
+      box-shadow: 0 10px 32px var(--shadow);
+    }
+    h2 {
+      margin-top: 0;
+      margin-bottom: 0.75rem;
+      font-size: 1.2rem;
+    }
+    ol, ul {
+      padding-left: 1.2rem;
+      margin: 0;
+    }
+    li + li { margin-top: 0.55rem; }
+    .install-box {
+      text-align: center;
+      padding: 2rem;
+    }
+    .status {
+      margin-top: 1rem;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .note {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+    .chip {
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      border-radius: 999px;
+      padding: 0.45rem 0.8rem;
+      font-size: 0.9rem;
+    }
+    a {
+      color: var(--accent);
+    }
+    .footer {
+      margin-top: 1.5rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      padding: 0.12rem 0.35rem;
+      border-radius: 0.4rem;
+    }
+  </style>
+  <script type="module" src="https://unpkg.com/esp-web-tools@9/dist/web/install-button.js?module"></script>
+</head>
+<body>
+  <main class="wrap">
+    <section class="hero">
+      <div class="badge">ESP32-S3 • LilyGo T-Display S3 • WLEDRemote+</div>
+      <h1>WLEDRemote+ Web Installer</h1>
+      <p class="lead">Flash the latest WLEDRemote+ firmware directly from your browser. This installer is intended for the LilyGo T-Display S3 version of the project and uses ESP Web Tools for USB flashing.</p>
+      <div class="chips">
+        <span class="chip">Browser flashing</span>
+        <span class="chip">No esptool needed</span>
+        <span class="chip">USB data cable required</span>
+      </div>
+    </section>
+
+    <div class="grid">
+      <section class="card install-box">
+        <h2>Install firmware</h2>
+        <esp-web-install-button manifest="manifest.json"></esp-web-install-button>
+        <p class="status">If the button does not work, use a Chromium-based browser such as Chrome, Edge, or Brave and connect the device with a USB data cable.</p>
+      </section>
+
+      <section class="card">
+        <h2>Before you start</h2>
+        <ul>
+          <li>Use a USB cable that supports data, not only charging.</li>
+          <li>Close serial monitors or other tools that may already use the device.</li>
+          <li>For a first install, erase and flash the device when prompted.</li>
+          <li>After flashing, the board may reboot automatically; if not, press reset once.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>Setup after flashing</h2>
+        <ol>
+          <li>Boot the device and join the Wi-Fi setup flow if no saved credentials exist.</li>
+          <li>Configure or discover your WLED instance.</li>
+          <li>Open the local config page on port <code>8080</code> if needed.</li>
+          <li>Pair it with Apple Home from the on-device HomeKit UI flow.</li>
+        </ol>
+      </section>
+
+      <section class="card">
+        <h2>Troubleshooting</h2>
+        <ul>
+          <li>If no serial port appears, reconnect the cable and confirm browser USB permissions.</li>
+          <li>If flashing succeeds but the board does not boot, retry with a full erase first.</li>
+          <li>If the installer page is hosted on GitHub Pages, make sure <code>manifest.json</code> and all referenced <code>.bin</code> files are in the same published folder.</li>
+        </ul>
+        <p class="note">Release assets for this installer should include <code>bootloader.bin</code>, <code>partitions.bin</code>, <code>boot_app0.bin</code>, and <code>firmware.bin</code>.</p>
+      </section>
+    </div>
+
+    <p class="footer">Powered by <a href="https://esphome.github.io/esp-web-tools/" target="_blank" rel="noopener noreferrer">ESP Web Tools</a>. Host this page together with the matching firmware files and <code>manifest.json</code>.</p>
+  </main>
+</body>
+</html>
