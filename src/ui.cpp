@@ -1,9 +1,9 @@
 #include "ui.h"
 #include <math.h>
-#include <lgfx/Fonts/GFXFF/FreeSans9pt7b.h>
-#include <lgfx/Fonts/GFXFF/FreeSansBold9pt7b.h>
-#include <lgfx/Fonts/GFXFF/TomThumb.h>
-#include <lgfx/Fonts/GFXFF/FreeSansBold12pt7b.h>
+//#include <lgfx/Fonts/GFXFF/FreeSans9pt7b.h>
+//#include <lgfx/Fonts/GFXFF/FreeSansBold9pt7b.h>
+//#include <lgfx/Fonts/GFXFF/TomThumb.h>
+//#include <lgfx/Fonts/GFXFF/FreeSansBold12pt7b.h>
 
 UI ui;
 
